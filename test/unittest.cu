@@ -1,13 +1,13 @@
 #include <gtest/gtest.h>
 #include <cstdlib>
-
-namespace {
+#include "marshal.h"
+//namespace {
 class libmarshal_test : public ::testing::Test {
  protected:
   virtual void SetUp(void) {}
   virtual void TearDown(void) {}
   libmarshal_test() {}
-};
+//};
 
 
 int compare_output(float *output, float *ref, int dim) {
@@ -16,17 +16,20 @@ int compare_output(float *output, float *ref, int dim) {
   for (i = 0; i < dim; i++) {
     float diff = fabs(ref[i] - output[i]);
     if ((diff - 0.0f) > 0.00001f && diff > 0.01*fabs(ref[i])) {
-      printf("line : %d ref: %f actual: %f diff: %f\n", i, ref[i], output[i], diff);
+      printf("line: %d ref: %f actual: %f diff: %f\n",
+          i, ref[i], output[i], diff);
       pass = 0;
       break;
     }
   }
+#if 0
   printf("\n");
   if (pass)
     printf("comparison passed\n");
   else
     printf("comparison failed\n");
   printf("\n");
+#endif
   return pass != 1;
 }
 
@@ -56,23 +59,26 @@ void cpu_aos_asta(float *src, float *dst, int height, int width,
 }
 };
 
-extern "C" void gpu_aos_asta(float *src, int height, int width, int tile_size, clock_t *timer);
 
-TEST_F(libmarshal_test, DISABLED_T1) {
-  float *src = (float*)malloc(sizeof(float)*4*4*3);
-  float *dst = (float*)malloc(sizeof(float)*4*4*3);
-  float *dst_gpu = (float*)malloc(sizeof(float)*4*4*3);
-  generate_vector(src, 4*4*3);
-  cpu_aos_asta(src, dst, 4*4, 3, 4);
+TEST_F(libmarshal_test, bug523) {
+  int h = 16*1024;
+  int w = 6;
+  int t = 16;
+  float *src = (float*)malloc(sizeof(float)*h*w);
+  float *dst = (float*)malloc(sizeof(float)*h*w);
+  float *dst_gpu = (float*)malloc(sizeof(float)*h*w);
+  generate_vector(src, h*w);
+  cpu_aos_asta(src, dst, h, w, t);
 
   float *d_dst;
-  cudaMalloc(&d_dst, sizeof(float)*4*4*3);
-  cudaMemcpy(d_dst, src, sizeof(float)*4*4*3, cudaMemcpyHostToDevice);
-  gpu_aos_asta(dst_gpu, 4*4, 3, 4, NULL);
-  cudaMemcpy(dst_gpu, d_dst, sizeof(float)*4*4*3, cudaMemcpyDeviceToHost);
+  cudaMalloc(&d_dst, sizeof(float)*h*w);
+  cudaMemcpy(d_dst, src, sizeof(float)*h*w, cudaMemcpyHostToDevice);
+  gpu_aos_asta(d_dst, h, w, t, NULL);
+  cudaMemcpy(dst_gpu, d_dst, sizeof(float)*h*w, cudaMemcpyDeviceToHost);
 
-  EXPECT_EQ(0, compare_output(dst, dst_gpu, 4*4*4));
+  EXPECT_EQ(0, compare_output(dst_gpu, dst, h*w));
   free(src);
   free(dst);
+  cudaFree(d_dst);
 
 }
