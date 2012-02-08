@@ -59,9 +59,9 @@ void cpu_aos_asta(float *src, float *dst, int height, int width,
 }
 };
 
-TEST_F(libmarshal_test, DISABLED_bug524) {
+TEST_F(libmarshal_test, bug524) {
   int h = 16*1024;
-  int w = 65;
+  int w = 66;
   int t = 16;
   float *src = (float*)malloc(sizeof(float)*h*w);
   float *dst = (float*)malloc(sizeof(float)*h*w);
