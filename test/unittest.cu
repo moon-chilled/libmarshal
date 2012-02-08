@@ -73,7 +73,9 @@ TEST_F(libmarshal_test, bug523) {
   float *d_dst;
   cudaMalloc(&d_dst, sizeof(float)*h*w);
   cudaMemcpy(d_dst, src, sizeof(float)*h*w, cudaMemcpyHostToDevice);
-  gpu_aos_asta(d_dst, h, w, t, NULL);
+  bool r = gpu_aos_asta(d_dst, h, w, t, NULL);
+  ASSERT_EQ(false, r);
+  
   cudaMemcpy(dst_gpu, d_dst, sizeof(float)*h*w, cudaMemcpyDeviceToHost);
 
   EXPECT_EQ(0, compare_output(dst_gpu, dst, h*w));
