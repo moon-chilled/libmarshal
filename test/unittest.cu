@@ -59,6 +59,29 @@ void cpu_aos_asta(float *src, float *dst, int height, int width,
 }
 };
 
+TEST_F(libmarshal_test, DISABLED_bug524) {
+  int h = 16*1024;
+  int w = 65;
+  int t = 16;
+  float *src = (float*)malloc(sizeof(float)*h*w);
+  float *dst = (float*)malloc(sizeof(float)*h*w);
+  float *dst_gpu = (float*)malloc(sizeof(float)*h*w);
+  generate_vector(src, h*w);
+  cpu_aos_asta(src, dst, h, w, t);
+
+  float *d_dst;
+  cudaMalloc(&d_dst, sizeof(float)*h*w);
+  cudaMemcpy(d_dst, src, sizeof(float)*h*w, cudaMemcpyHostToDevice);
+  bool r = gpu_aos_asta_pttwac(d_dst, h, w, t, NULL);
+  ASSERT_EQ(false, r);
+  
+  cudaMemcpy(dst_gpu, d_dst, sizeof(float)*h*w, cudaMemcpyDeviceToHost);
+
+  EXPECT_EQ(0, compare_output(dst_gpu, dst, h*w));
+  free(src);
+  free(dst);
+  cudaFree(d_dst);
+}
 
 TEST_F(libmarshal_test, bug523) {
   int h = 16*1024;
@@ -73,7 +96,7 @@ TEST_F(libmarshal_test, bug523) {
   float *d_dst;
   cudaMalloc(&d_dst, sizeof(float)*h*w);
   cudaMemcpy(d_dst, src, sizeof(float)*h*w, cudaMemcpyHostToDevice);
-  bool r = gpu_aos_asta(d_dst, h, w, t, NULL);
+  bool r = gpu_aos_asta_bs(d_dst, h, w, t, NULL);
   ASSERT_EQ(false, r);
   
   cudaMemcpy(dst_gpu, d_dst, sizeof(float)*h*w, cudaMemcpyDeviceToHost);
@@ -82,5 +105,4 @@ TEST_F(libmarshal_test, bug523) {
   free(src);
   free(dst);
   cudaFree(d_dst);
-
 }
