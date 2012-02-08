@@ -20,11 +20,11 @@ __global__ static void BS_marshal(float *input,
 
 __global__ static void PTTWAC_marshal(float *input, int tile_size, int width,
     clock_t *timer) {
-  __shared__ unsigned finished[1024];
+  extern __shared__ unsigned finished[];
   int tidx = threadIdx.x;
   int m = tile_size*width - 1;
   input += blockIdx.x*tile_size*width;
-  for (int id = tidx ; id < tile_size * width / 32; id += blockDim.x) {
+  for (int id = tidx ; id < (tile_size * width + 31) / 32; id += blockDim.x) {
     finished[id] = 0;
   }
   __syncthreads();

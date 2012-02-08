@@ -58,7 +58,7 @@ void cpu_aos_asta(float *src, float *dst, int height, int width,
   }
 }
 };
-TEST_F(libmarshal_test, DISABLED_bug525) {
+TEST_F(libmarshal_test, bug525) {
   int h = 16*1024;
   int t = 16;
   for (int w = 1; w < 100; w++) {

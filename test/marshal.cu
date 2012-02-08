@@ -15,10 +15,12 @@ extern "C" bool gpu_aos_asta_bs(float *src, int height, int width,
   return cudaSuccess != err;
 }
 
+#define NR_THREADS 64
 extern "C" bool gpu_aos_asta_pttwac(float *src, int height, int width,
     int tile_size, clock_t *timer) {
   assert ((height/tile_size)*tile_size == height);
-  PTTWAC_marshal<<<height/tile_size, 16>>>(src, tile_size, width, timer);
+  PTTWAC_marshal<<<height/tile_size, NR_THREADS,
+    ((tile_size*width+31)/32)*4>>>(src, tile_size, width, timer);
   cudaError_t err = cudaGetLastError();
   if (cudaSuccess != err) {
     std::cerr << cudaGetErrorString(err) << std::endl;
