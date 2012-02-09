@@ -1,3 +1,23 @@
+//===--- marshal.cu - GPU in-place marshaling library          ----------===//
+// (C) Copyright 2012 The Board of Trustees of the University of Illinois.
+// All rights reserved.
+//
+//                            libmarshal
+// Developed by:
+//                           IMPACT Research Group
+//                  University of Illinois, Urbana-Champaign
+// 
+// This file is distributed under the Illinois Open Source License.
+// See LICENSE.TXT for details.
+//
+// Author: I-Jui Sung (sung10@illinois.edu)
+//
+//===---------------------------------------------------------------------===//
+//
+//  This file defines the interface of the libmarshal 
+//
+//===---------------------------------------------------------------------===//
+
 #include <cstdlib>
 #include <cassert>
 #include <iostream>

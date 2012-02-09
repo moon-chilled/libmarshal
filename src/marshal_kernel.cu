@@ -1,6 +1,32 @@
+//===--- marshal_kernel.cu - GPU in-place marshaling library    ----------===//
+// (C) Copyright 2012 The Board of Trustees of the University of Illinois.
+// All rights reserved.
+//
+//                            libmarshal
+// Developed by:
+//                           IMPACT Research Group
+//                  University of Illinois, Urbana-Champaign
+// 
+// This file is distributed under the Illinois Open Source License.
+// See LICENSE.TXT for details.
+//
+// Author: I-Jui Sung (sung10@illinois.edu)
+//
+//===---------------------------------------------------------------------===//
+//
+//  This file defines the CUDA kernels of the libmarshal 
+//
+//===---------------------------------------------------------------------===//
+
+
 #ifndef _LIBMARSHAL_KERNEL_CU_
 #define _LIBMARSHAL_KERNEL_CU_
 
+// limitations: tile_size * width cannot exceed maximal # of threads in
+// a block allowed in the system
+// convert a[height/tile_size][tile_size][width] to
+// a[height/tile_size][width][tile_size]
+// Launch height/tile_size blocks of tile_size*width threads
 __global__ static void BS_marshal(float *input,
     int tile_size, int width, clock_t *timer) {
 //  clock_t time1 = clock();
@@ -18,6 +44,10 @@ __global__ static void BS_marshal(float *input,
 #endif
 }
 
+// limitations: height must be multiple of tile_size
+// convert a[height/tile_size][tile_size][width] to
+// a[height/tile_size][width][tile_size]
+// Launch height/tile_size blocks of NR_THREADS threads
 __global__ static void PTTWAC_marshal(float *input, int tile_size, int width,
     clock_t *timer) {
   extern __shared__ unsigned finished[];
@@ -51,6 +81,7 @@ __global__ static void PTTWAC_marshal(float *input, int tile_size, int width,
   }
 }
 
+// limitations: tile_size cannot exceed # of allowed threads in the system
 // convert a[width][height/tile_size][tile_size] to
 // a[height/tile_size][width][tile_size]
 // Launch width*height/tile_size blocks of tile_size threads
