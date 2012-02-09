@@ -50,4 +50,11 @@ __global__ static void PTTWAC_marshal(float *input, int tile_size, int width,
     }
   }
 }
+
+// convert a[width][height/tile_size][tile_size] to
+// a[height/tile_size][width][tile_size]
+// Launch width*height/tile_size blocks of tile_size threads
+__global__ static void PTTWAC_marshal_soa(float *input, int tile_size,
+    int width, int *finished, clock_t *timer) {
+}
 #endif //_LIBMARSHAL_KERNEL_CU_

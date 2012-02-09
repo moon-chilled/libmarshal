@@ -57,7 +57,46 @@ void cpu_aos_asta(float *src, float *dst, int height, int width,
     }
   }
 }
+
+void cpu_soa_asta(float *src, float *dst, int height, int width,
+    int tile_size) {
+  // We only support height == multiple of tile size
+  assert((height/tile_size)*tile_size == height);
+  for (int k = 0; k < width; k++) {
+    for (int i = 0; i<height/tile_size; i++) { //For all tiles
+      for(int j = 0; j < tile_size; j++) {
+        //from src[k][i][j] to dst[i][k][j]
+        dst[i*width*tile_size + k*tile_size + j] =
+          src[k*height+i*tile_size + j];
+      }
+    }
+  }
+}
+
 };
+
+TEST_F(libmarshal_test, bug528) {
+  int h = 16;
+  int t = 4;
+  int w = 3;
+  float *src = (float*)malloc(sizeof(float)*h*w);
+  float *dst = (float*)malloc(sizeof(float)*h*w);
+  float *dst_gpu = (float*)malloc(sizeof(float)*h*w);
+  generate_vector(src, h*w);
+  cpu_soa_asta(src, dst, h, w, t);
+  float *d_dst;
+  cudaMalloc(&d_dst, sizeof(float)*h*w);
+  cudaMemcpy(d_dst, src, sizeof(float)*h*w, cudaMemcpyHostToDevice);
+  bool r = gpu_soa_asta_pttwac(d_dst, h, w, t, NULL);
+  ASSERT_EQ(false, r);
+
+  cudaMemcpy(dst_gpu, d_dst, sizeof(float)*h*w, cudaMemcpyDeviceToHost);
+  EXPECT_EQ(0, compare_output(dst_gpu, dst, h*w));
+  free(src);
+  free(dst);
+  cudaFree(d_dst);
+}
+
 TEST_F(libmarshal_test, bug525) {
   int h = 16*1024;
   int t = 16;

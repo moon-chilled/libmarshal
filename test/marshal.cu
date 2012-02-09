@@ -27,3 +27,20 @@ extern "C" bool gpu_aos_asta_pttwac(float *src, int height, int width,
   }
   return cudaSuccess != err;
 }
+
+extern "C" bool gpu_soa_asta_pttwac(float *src, int height, int width,
+    int tile_size, clock_t *timer) {
+  assert ((height/tile_size)*tile_size == height);
+  int *finished;
+  cudaMalloc(&finished, height*width/tile_size*sizeof(int));
+  cudaMemset(finished, 0, height*width/tile_size*sizeof(int));
+
+  PTTWAC_marshal_soa<<<height/tile_size*width, tile_size>>>(
+      src, tile_size, width, finished, timer);
+  cudaError_t err = cudaGetLastError();
+  if (cudaSuccess != err) {
+    std::cerr << cudaGetErrorString(err) << std::endl;
+  }
+  cudaFree(finished);
+  return cudaSuccess != err;
+}
