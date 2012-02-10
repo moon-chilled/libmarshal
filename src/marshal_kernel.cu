@@ -101,11 +101,12 @@ __global__ static void PTTWAC_marshal_soa(float *input, int tile_size,
   __shared__ int done;
   data = input[gid*tile_size+tid];
   if (tid == 0)
-    done = finished[gid];
+    done = atomicOr(finished+gid, (int)0); //make sure the read is not cached 
   __syncthreads();
 
   for (;done == 0; next_in_cycle = (next_in_cycle*width)%m) {
     float backup = input[next_in_cycle*tile_size+tid];
+    __syncthreads();
     if (tid == 0) {
       done = atomicExch(finished+next_in_cycle, (int)1);
     }
