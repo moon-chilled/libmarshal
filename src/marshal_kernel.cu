@@ -100,6 +100,7 @@ __global__ static void PTTWAC_marshal_soa(float *input, int tile_size,
 
   __shared__ int done;
   data = input[gid*tile_size+tid];
+  __syncthreads();
   if (tid == 0)
     done = atomicOr(finished+gid, (int)0); //make sure the read is not cached 
   __syncthreads();
