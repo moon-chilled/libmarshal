@@ -114,7 +114,7 @@ TEST_F(libmarshal_cl_test, DISABLED_bug533) {
   ASSERT_EQ(err, CL_SUCCESS);
   ASSERT_EQ(queue_->enqueueWriteBuffer(
         d_dst, CL_TRUE, 0, sizeof(float)*h*w, src), CL_SUCCESS);
-  bool r = cl_aos_asta_bs(d_dst(), h, w, t);
+  bool r = cl_aos_asta_bs((*queue_)(), d_dst(), h, w, t);
   ASSERT_EQ(false, r);
   ASSERT_EQ(queue_->enqueueReadBuffer(d_dst, CL_TRUE, 0, sizeof(float)*h*w,
         dst_gpu), CL_SUCCESS);

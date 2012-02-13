@@ -21,9 +21,12 @@
 #include <cstdlib>
 #include <cassert>
 #include <iostream>
+#include <cl.hpp>
 #include "cl_marshal.h"
-extern "C" bool cl_aos_asta_bs(cl_mem src, int height, int width,
+extern "C" bool cl_aos_asta_bs(cl_command_queue queue,
+    cl_mem src, int height, int width,
     int tile_size) {
+
 #if 0
   assert ((height/tile_size)*tile_size == height);
   dim3 threads (width, tile_size, 1);
