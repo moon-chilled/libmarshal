@@ -10,6 +10,20 @@ MESSAGE(${CMAKE_PROJECT_NAME} " include directories: \n")
 get_directory_property(includes INCLUDE_DIRECTORIES)
 message("${includes}\n")
 
+SET (CMAKE_MODULE_PATH ${CMAKE_CURRENT_SOURCE_DIR}/cmake)
+FIND_PACKAGE(OpenCL)
+IF(APPLE)
+  INCLUDE_DIRECTORIES(
+    ${OPENCL_INCLUDE_DIRS}/Headers
+    /opt/local/include
+  )
+ELSE(APPLE)
+  INCLUDE_DIRECTORIES(
+    ${OPENCL_INCLUDE_DIRS}/CL
+    ${OPENCL_INCLUDE_DIRS}/
+  )
+ENDIF(APPLE)
+
 ADD_SUBDIRECTORY(gtest)
 ADD_SUBDIRECTORY(src)
 ADD_SUBDIRECTORY(test)
