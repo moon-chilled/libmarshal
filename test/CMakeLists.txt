@@ -1,8 +1,10 @@
-#CUDA Tests
-CUDA_ADD_EXECUTABLE (clk clock.cu)
-SET (CUDA_NVCC_FLAGS -arch sm_12)
-CUDA_ADD_EXECUTABLE (unittest unittest.cu)
-TARGET_LINK_LIBRARIES (unittest marshal gtest gtest_main)
+IF (CUDA_FOUND)
+  #CUDA Tests
+  CUDA_ADD_EXECUTABLE (clk clock.cu)
+  SET (CUDA_NVCC_FLAGS -arch sm_12)
+  CUDA_ADD_EXECUTABLE (unittest unittest.cu)
+  TARGET_LINK_LIBRARIES (unittest marshal gtest gtest_main)
+ENDIF (CUDA_FOUND)
 
 #OpenCL Tests
 ADD_EXECUTABLE (cl_unittest cl_unittest.cc)
