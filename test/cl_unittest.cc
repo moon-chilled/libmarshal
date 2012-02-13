@@ -3,6 +3,7 @@
 #include <cstdlib>
 #include <string>
 #include <vector>
+#include <math.h>
 #include "cl_marshal.h"
 namespace {
 class libmarshal_cl_test : public ::testing::Test {
