@@ -98,6 +98,33 @@ void cpu_soa_asta(float *src, float *dst, int height, int width,
 }
 
 };
+
+TEST_F(libmarshal_cl_test, bug537) {
+  int h = 16*64;
+  int t = 64;
+  for (int w = 1; w < 100; w++) {
+    float *src = (float*)malloc(sizeof(float)*h*w);
+    float *dst = (float*)malloc(sizeof(float)*h*w);
+    float *dst_gpu = (float*)malloc(sizeof(float)*h*w);
+    generate_vector(src, h*w);
+    cpu_soa_asta(src, dst, h, w, t);
+    cl_int err;
+    cl::Buffer d_dst = cl::Buffer(*context_, CL_MEM_READ_WRITE,
+        sizeof(float)*h*w, NULL, &err);
+    ASSERT_EQ(err, CL_SUCCESS);
+    ASSERT_EQ(queue_->enqueueWriteBuffer(
+          d_dst, CL_TRUE, 0, sizeof(float)*h*w, src), CL_SUCCESS);
+    bool r = cl_soa_asta_pttwac((*queue_)(), d_dst(), h, w, t);
+    ASSERT_EQ(false, r);
+    ASSERT_EQ(queue_->enqueueReadBuffer(d_dst, CL_TRUE, 0, sizeof(float)*h*w,
+          dst_gpu), CL_SUCCESS);
+    EXPECT_EQ(0, compare_output(dst_gpu, dst, h*w));
+    free(src);
+    free(dst);
+    free(dst_gpu);
+  }
+}
+
 TEST_F(libmarshal_cl_test, bug536) {
   int h = 16*1024;
   int t = 16;
