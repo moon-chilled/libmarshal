@@ -90,6 +90,11 @@ extern "C" bool cl_aos_asta_bs(cl_command_queue cl_queue,
     return true;
   return false;
 }
+
+extern "C" bool cl_aos_asta_pttwac(cl_command_queue cl_queue,
+    cl_mem src, int height, int width, int tile_size) {
+  return false;
+}
 #if 0
 #define NR_THREADS 64
 extern "C" bool gpu_aos_asta_pttwac(float *src, int height, int width,
