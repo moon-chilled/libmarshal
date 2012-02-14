@@ -28,5 +28,6 @@ message("${includes}\n")
 
 ADD_SUBDIRECTORY(gtest)
 ADD_SUBDIRECTORY(src)
+ADD_SUBDIRECTORY(tools)
 ADD_SUBDIRECTORY(test)
 ENABLE_TESTING()
