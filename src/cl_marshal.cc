@@ -24,33 +24,62 @@
 #include <cl.hpp>
 #include "cl_marshal.h"
 #include "embd.hpp"
+#include "singleton.hpp"
+namespace {
+class MarshalProg {
+ public:
+  ~MarshalProg() { delete source_; }
+  MarshalProg(void):source_(NULL), program(NULL) {
+    embd::file source_file("cl/cl_aos_asta.cl");
+    std::istream &in = source_file.istream();
+    std::string source_code(std::istreambuf_iterator<char>(in),
+	(std::istreambuf_iterator<char>()));
+    source_ = new cl::Program::Sources(1, std::make_pair(source_code.c_str(),
+	  source_code.length()+1));
+  }
+
+  bool Init(cl_context clcontext) {
+    assert(source_);
+    if (context_ != &clcontext) { //Trigger recompilation
+      cl::Context context(clcontext);
+      clRetainContext(clcontext);
+      context_ = &clcontext;
+      delete program;
+      program = new cl::Program(context, *source_);
+      if (CL_SUCCESS != program->build())
+        return true;
+    }
+    return false;
+  }
+
+  cl::Program *program;
+ private:
+  cl::Program::Sources *source_;
+  cl_context *context_;
+  
+};
+typedef Singleton<MarshalProg> MarshalProgSingleton;
+}
+
 extern "C" bool cl_aos_asta_bs(cl_command_queue cl_queue,
     cl_mem src, int height, int width,
     int tile_size) {
-  clRetainMemObject(src);
+  // Standard preparation of invoking a kernel
   cl::CommandQueue queue = cl::CommandQueue(cl_queue);
+  clRetainCommandQueue(cl_queue);
   cl::Buffer buffer = cl::Buffer(src);
+  clRetainMemObject(src);
   cl::Context context;
   if(buffer.getInfo(CL_MEM_CONTEXT, &context) != CL_SUCCESS)
     return true;
   clRetainContext(context());
-  clRetainCommandQueue(cl_queue);
-  embd::file source_file("cl/cl_aos_asta.cl");
-  std::istream &in = source_file.istream();
-  std::string source_code(std::istreambuf_iterator<char>(in),
-      (std::istreambuf_iterator<char>()));
-  cl::Program::Sources source(1, std::make_pair(source_code.c_str(),
-        source_code.length()+1));
-  cl::Program program = cl::Program(context, source);
-  std::vector<cl::Device> devices(0);
-  cl_int err = program.build(devices);
-  if (err != CL_SUCCESS)
+  MarshalProg *marshalprog = MarshalProgSingleton::Instance();
+  marshalprog->Init(context());
+
+  cl::Kernel kernel(*marshalprog->program, "BS_marshal");
+  if (CL_SUCCESS != kernel.setArg(0, buffer))
     return true;
-  cl::Kernel kernel(program, "BS_marshal");
-  err = kernel.setArg(0, buffer);
-  if (err != CL_SUCCESS)
-    return true;
-  err = kernel.setArg(1, tile_size);
+  cl_int err = kernel.setArg(1, tile_size);
   if (err != CL_SUCCESS)
     return true;
   err = kernel.setArg(2, width);
