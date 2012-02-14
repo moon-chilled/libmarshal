@@ -28,35 +28,33 @@
 namespace {
 class MarshalProg {
  public:
-  ~MarshalProg() { delete source_; }
-  MarshalProg(void):source_(NULL), program(NULL), context_(NULL) {
+  ~MarshalProg() {}
+  MarshalProg(void): program(NULL), context_(NULL) {
     embd::file source_file("cl/cl_aos_asta.cl");
     std::istream &in = source_file.istream();
     source_code_ = std::string(std::istreambuf_iterator<char>(in),
 	(std::istreambuf_iterator<char>()));
-    source_ = new cl::Program::Sources(1,
+    source_ = cl::Program::Sources(1,
       std::make_pair(source_code_.c_str(), source_code_.length()+1));
   }
 
   bool Init(cl_context clcontext) {
-    assert(source_);
-    if (context_ != &clcontext) { //Trigger recompilation
+    if (context_ != clcontext) { //Trigger recompilation
       cl::Context context(clcontext);
       clRetainContext(clcontext);
-      context_ = &clcontext;
-      delete program;
-      program = new cl::Program(context, *source_);
-      if (CL_SUCCESS != program->build())
+      context_ = clcontext;
+      program = cl::Program(context, source_);
+      if (CL_SUCCESS != program.build())
         return true;
     }
     return false;
   }
 
-  cl::Program *program;
+  cl::Program program;
  private:
-  cl::Program::Sources *source_;
+  cl::Program::Sources source_;
   std::string source_code_;
-  cl_context *context_;
+  cl_context context_;
   
 };
 typedef Singleton<MarshalProg> MarshalProgSingleton;
@@ -77,7 +75,7 @@ extern "C" bool cl_aos_asta_bs(cl_command_queue cl_queue,
   MarshalProg *marshalprog = MarshalProgSingleton::Instance();
   marshalprog->Init(context());
 
-  cl::Kernel kernel(*marshalprog->program, "BS_marshal");
+  cl::Kernel kernel(marshalprog->program, "BS_marshal");
   if (CL_SUCCESS != kernel.setArg(0, buffer))
     return true;
   cl_int err = kernel.setArg(1, tile_size);
