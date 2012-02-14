@@ -115,6 +115,7 @@ TEST_F(libmarshal_test, bug528) {
     EXPECT_EQ(0, compare_output(dst_gpu, dst, h*w));
     free(src);
     free(dst);
+    free(dst_gpu);
     cudaFree(d_dst);
   }
 }
@@ -140,6 +141,7 @@ TEST_F(libmarshal_test, bug525) {
     EXPECT_EQ(0, compare_output(dst_gpu, dst, h*w));
     free(src);
     free(dst);
+    free(dst_gpu);
     cudaFree(d_dst);
   }
 }
@@ -165,6 +167,7 @@ TEST_F(libmarshal_test, bug524) {
   EXPECT_EQ(0, compare_output(dst_gpu, dst, h*w));
   free(src);
   free(dst);
+  free(dst_gpu);
   cudaFree(d_dst);
 }
 
@@ -189,5 +192,6 @@ TEST_F(libmarshal_test, bug523) {
   EXPECT_EQ(0, compare_output(dst_gpu, dst, h*w));
   free(src);
   free(dst);
+  free(dst_gpu);
   cudaFree(d_dst);
 }
