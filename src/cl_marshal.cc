@@ -120,7 +120,6 @@ extern "C" bool cl_aos_asta_pttwac(cl_command_queue cl_queue,
   if (err != CL_SUCCESS)
     return true;
   cl::NDRange global(height/tile_size*NR_THREADS), local(NR_THREADS);
-  // TODO: local memory size
   err = queue.enqueueNDRangeKernel(kernel, cl::NullRange, global, local);
   if (err != CL_SUCCESS)
     return true;
@@ -171,33 +170,4 @@ extern "C" bool cl_soa_asta_pttwac(cl_command_queue cl_queue,
     return true;
   return false;
 }
-#if 0
-extern "C" bool gpu_aos_asta_pttwac(float *src, int height, int width,
-    int tile_size, clock_t *timer) {
-  assert ((height/tile_size)*tile_size == height);
-  PTTWAC_marshal<<<height/tile_size, NR_THREADS,
-    ((tile_size*width+31)/32)*4>>>(src, tile_size, width, timer);
-  cudaError_t err = cudaGetLastError();
-  if (cudaSuccess != err) {
-    std::cerr << cudaGetErrorString(err) << std::endl;
-  }
-  return cudaSuccess != err;
-}
 
-extern "C" bool gpu_soa_asta_pttwac(float *src, int height, int width,
-    int tile_size, clock_t *timer) {
-  assert ((height/tile_size)*tile_size == height);
-  int *finished;
-  cudaMalloc(&finished, height*width/tile_size*sizeof(int));
-  cudaMemset(finished, 0, height*width/tile_size*sizeof(int));
-
-  PTTWAC_marshal_soa<<<height/tile_size*width, tile_size>>>(
-      src, tile_size, width, finished, timer);
-  cudaError_t err = cudaGetLastError();
-  if (cudaSuccess != err) {
-    std::cerr << cudaGetErrorString(err) << std::endl;
-  }
-  cudaFree(finished);
-  return cudaSuccess != err;
-}
-#endif
