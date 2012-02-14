@@ -91,12 +91,42 @@ extern "C" bool cl_aos_asta_bs(cl_command_queue cl_queue,
   return false;
 }
 
+#define NR_THREADS 64
 extern "C" bool cl_aos_asta_pttwac(cl_command_queue cl_queue,
     cl_mem src, int height, int width, int tile_size) {
+  // Standard preparation of invoking a kernel
+  cl::CommandQueue queue = cl::CommandQueue(cl_queue);
+  clRetainCommandQueue(cl_queue);
+  cl::Buffer buffer = cl::Buffer(src);
+  clRetainMemObject(src);
+  cl::Context context;
+  if(buffer.getInfo(CL_MEM_CONTEXT, &context) != CL_SUCCESS)
+    return true;
+  clRetainContext(context());
+  MarshalProg *marshalprog = MarshalProgSingleton::Instance();
+  marshalprog->Init(context());
+
+  assert ((height/tile_size)*tile_size == height);
+  cl::Kernel kernel(marshalprog->program, "PTTWAC_marshal");
+  if (CL_SUCCESS != kernel.setArg(0, buffer))
+    return true;
+  cl_int err = kernel.setArg(1, tile_size);
+  if (err != CL_SUCCESS)
+    return true;
+  err = kernel.setArg(2, width);
+  if (err != CL_SUCCESS)
+    return true;
+  err = kernel.setArg(3, ((tile_size*width+31)/32)*sizeof(cl_uint), NULL);
+  if (err != CL_SUCCESS)
+    return true;
+  cl::NDRange global(height/tile_size*NR_THREADS), local(NR_THREADS);
+  // TODO: local memory size
+  err = queue.enqueueNDRangeKernel(kernel, cl::NullRange, global, local);
+  if (err != CL_SUCCESS)
+    return true;
   return false;
 }
 #if 0
-#define NR_THREADS 64
 extern "C" bool gpu_aos_asta_pttwac(float *src, int height, int width,
     int tile_size, clock_t *timer) {
   assert ((height/tile_size)*tile_size == height);

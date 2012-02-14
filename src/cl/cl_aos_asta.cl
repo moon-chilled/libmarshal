@@ -23,16 +23,12 @@
 #pragma OPENCL EXTENSION cl_khr_local_int32_extended_atomics : enable
 #pragma OPENCL EXTENSION cl_khr_global_int32_base_atomics : enable
 #pragma OPENCL EXTENSION cl_khr_global_int32_extended_atomics : enable
-#if 0
-#define TILE 16
-#define LOG_TILE 4 //log(16)
-#define COARSEN 4
-#define LOG_COARSEN 2//2 //log(4)
-#endif
-//Tranposed layout
-#define __FF2D(dimx,row,col) ((row)/TILE*(dimx)*(TILE) + (col)*TILE + (row)%TILE)
-//Original layout
-//#define __FF2D(dimx,row,col) ((row)*(dimx) + col)
+
+// limitations: tile_size * width cannot exceed maximal # of threads in
+// a block allowed in the system
+// convert a[height/tile_size][tile_size][width] to
+// a[height/tile_size][width][tile_size]
+// Launch height/tile_size blocks of tile_size*width threads
 __kernel void BS_marshal (__global float *input, int tile_size, int width) {
   int tidx = get_local_id(1);
   int tidy = get_local_id(0);
@@ -42,6 +38,44 @@ __kernel void BS_marshal (__global float *input, int tile_size, int width) {
   barrier(CLK_LOCAL_MEM_FENCE|CLK_GLOBAL_MEM_FENCE);
   input[tidx*tile_size+tidy] = tmp;
 }
+
+// limitations: height must be multiple of tile_size
+// convert a[height/tile_size][tile_size][width] to
+// a[height/tile_size][width][tile_size]
+// Launch height/tile_size blocks of NR_THREADS threads
+__kernel void PTTWAC_marshal(__global float *input, int tile_size, int width,
+    __local uint *finished) {
+  int tidx = get_local_id(0);
+  int m = tile_size*width - 1;
+  input += get_group_id(0)*tile_size*width;
+  for (int id = tidx ; id < (tile_size * width + 31) / 32;
+      id += get_local_size(0)) {
+    finished[id] = 0;
+  }
+  barrier(CLK_LOCAL_MEM_FENCE|CLK_GLOBAL_MEM_FENCE);
+  for (;tidx < tile_size*width; tidx += get_local_size(0)) {
+    int next = (tidx * tile_size) % m;
+    if (tidx != m && next != tidx) {
+      float data1 = input[tidx];
+      unsigned int mask = (1 << (tidx % 32));
+      unsigned int flag_id = (((unsigned int) tidx) >> 5);
+      int done = atom_or(finished+flag_id, 0);
+      done = (done & mask);
+      for (; done == 0; next = (next * tile_size) % m) {
+        float data2 = input[next];
+        mask = (1 << (next % 32));
+        flag_id = (((unsigned int)next) >> 5);
+        done = atom_or(finished+flag_id, mask);
+        done = (done & mask);
+        if (done == 0) {
+          input[next] = data1;
+        }
+        data1 = data2;
+      }
+    }
+  }
+}
+
 
 #if 0
 __kernel void TransposeEllF_cycle (
