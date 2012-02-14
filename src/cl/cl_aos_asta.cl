@@ -76,6 +76,43 @@ __kernel void PTTWAC_marshal(__global float *input, int tile_size, int width,
   }
 }
 
+// limitations: tile_size cannot exceed # of allowed threads in the system
+// convert a[width][height/tile_size][tile_size] to
+// a[height/tile_size][width][tile_size]
+// Launch width*height/tile_size blocks of tile_size threads
+__kernel void PTTWAC_marshal_soa(__global float *input, int tile_size,
+    int width, __global int *finished) {
+  int m = get_num_groups(0)-1;
+  int tid = get_local_id(0);
+  float data;
+  int gid = get_group_id(0);
+  if (gid == m)
+    return;
+
+  int next_in_cycle = (gid * width)%m;
+  if (next_in_cycle == gid)
+    return;
+
+  __local int done;
+  data = input[gid*tile_size+tid];
+  barrier(CLK_LOCAL_MEM_FENCE|CLK_GLOBAL_MEM_FENCE);
+  if (tid == 0)
+    done = atom_or(finished+gid, (int)0); //make sure the read is not cached 
+  barrier(CLK_LOCAL_MEM_FENCE|CLK_GLOBAL_MEM_FENCE);
+
+  for (;done == 0; next_in_cycle = (next_in_cycle*width)%m) {
+    float backup = input[next_in_cycle*tile_size+tid];
+    barrier(CLK_LOCAL_MEM_FENCE|CLK_GLOBAL_MEM_FENCE);
+    if (tid == 0) {
+      done = atom_xchg(finished+next_in_cycle, (int)1);
+    }
+    barrier(CLK_LOCAL_MEM_FENCE|CLK_GLOBAL_MEM_FENCE);
+    if (!done) {
+      input[next_in_cycle*tile_size+tid] = data;
+    }
+    data = backup;
+  }
+}
 
 #if 0
 __kernel void TransposeEllF_cycle (
