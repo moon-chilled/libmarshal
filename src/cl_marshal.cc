@@ -29,13 +29,13 @@ namespace {
 class MarshalProg {
  public:
   ~MarshalProg() { delete source_; }
-  MarshalProg(void):source_(NULL), program(NULL) {
+  MarshalProg(void):source_(NULL), program(NULL), context_(NULL) {
     embd::file source_file("cl/cl_aos_asta.cl");
     std::istream &in = source_file.istream();
-    std::string source_code(std::istreambuf_iterator<char>(in),
+    source_code_ = std::string(std::istreambuf_iterator<char>(in),
 	(std::istreambuf_iterator<char>()));
-    source_ = new cl::Program::Sources(1, std::make_pair(source_code.c_str(),
-	  source_code.length()+1));
+    source_ = new cl::Program::Sources(1,
+      std::make_pair(source_code_.c_str(), source_code_.length()+1));
   }
 
   bool Init(cl_context clcontext) {
@@ -55,6 +55,7 @@ class MarshalProg {
   cl::Program *program;
  private:
   cl::Program::Sources *source_;
+  std::string source_code_;
   cl_context *context_;
   
 };
