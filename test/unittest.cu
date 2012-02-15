@@ -96,7 +96,7 @@ void cpu_soa_asta(float *src, float *dst, int height, int width,
 
 };
 
-TEST_F(libmarshal_test, bug537) {
+TEST_F(libmarshal_test, bug538) {
   int h = 256*4096;
   int t = 64;
   int w = 10;
