@@ -55,7 +55,7 @@ extern "C" bool gpu_soa_asta_pttwac(float *src, int height, int width,
   cudaMalloc(&finished, height*width/tile_size*sizeof(int));
   cudaMemset(finished, 0, height*width/tile_size*sizeof(int));
 
-  size_t grid = min(height/tile_size*width, 32768);
+  size_t grid = min(height/tile_size*width, 1024);
   PTTWAC_marshal_soa<<<grid, tile_size>>>(
       src, height, tile_size, width, finished, timer);
   cudaError_t err = cudaGetLastError();
