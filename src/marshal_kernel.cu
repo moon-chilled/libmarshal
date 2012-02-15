@@ -85,37 +85,37 @@ __global__ static void PTTWAC_marshal(float *input, int tile_size, int width,
 // convert a[width][height/tile_size][tile_size] to
 // a[height/tile_size][width][tile_size]
 // Launch width*height/tile_size blocks of tile_size threads
-__global__ static void PTTWAC_marshal_soa(float *input, int tile_size,
-    int width, int *finished, clock_t *timer) {
-  int m = gridDim.x-1;
+__global__ static void PTTWAC_marshal_soa(float *input, int height,
+    int tile_size, int width, int *finished, clock_t *timer) {
+  int m = (height*width)/tile_size-1;
   int tid = threadIdx.x;
   float data;
-  int gid = blockIdx.x;
-  if (gid == m)
-    return;
-
-  int next_in_cycle = (gid * width)%m;
-  if (next_in_cycle == gid)
-    return;
-
   __shared__ int done;
-  data = input[gid*tile_size+tid];
-  __syncthreads();
-  if (tid == 0)
-    done = atomicOr(finished+gid, (int)0); //make sure the read is not cached 
-  __syncthreads();
+  for (int gid = blockIdx.x;gid < m; gid += gridDim.x) {
 
-  for (;done == 0; next_in_cycle = (next_in_cycle*width)%m) {
-    float backup = input[next_in_cycle*tile_size+tid];
+    int next_in_cycle = (gid * width)%m;
+    if (next_in_cycle == gid)
+      continue;
+
+    data = input[gid*tile_size+tid];
     __syncthreads();
-    if (tid == 0) {
-      done = atomicExch(finished+next_in_cycle, (int)1);
-    }
+    if (tid == 0)
+      done = atomicOr(finished+gid,
+        (int)0); //make sure the read is not cached 
     __syncthreads();
-    if (!done) {
-      input[next_in_cycle*tile_size+tid] = data;
+
+    for (;done == 0; next_in_cycle = (next_in_cycle*width)%m) {
+      float backup = input[next_in_cycle*tile_size+tid];
+      __syncthreads();
+      if (tid == 0) {
+        done = atomicExch(finished+next_in_cycle, (int)1);
+      }
+      __syncthreads();
+      if (!done) {
+        input[next_in_cycle*tile_size+tid] = data;
+      }
+      data = backup;
     }
-    data = backup;
   }
 }
 #endif //_LIBMARSHAL_KERNEL_CU_
