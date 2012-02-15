@@ -96,6 +96,28 @@ void cpu_soa_asta(float *src, float *dst, int height, int width,
 
 };
 
+TEST_F(libmarshal_test, bug537) {
+  int h = 256*4096;
+  int t = 64;
+  int w = 10;
+  float *src = (float*)malloc(sizeof(float)*h*w);
+  float *dst = (float*)malloc(sizeof(float)*h*w);
+  float *dst_gpu = (float*)malloc(sizeof(float)*h*w);
+  generate_vector(src, h*w);
+  cpu_soa_asta(src, dst, h, w, t);
+  float *d_dst;
+  cudaMalloc(&d_dst, sizeof(float)*h*w);
+  cudaMemcpy(d_dst, src, sizeof(float)*h*w, cudaMemcpyHostToDevice);
+  bool r = gpu_soa_asta_pttwac(d_dst, h, w, t, NULL);
+  ASSERT_EQ(false, r);
+  cudaMemcpy(dst_gpu, d_dst, sizeof(float)*h*w, cudaMemcpyDeviceToHost);
+  EXPECT_EQ(0, compare_output(dst_gpu, dst, h*w));
+  free(src);
+  free(dst);
+  free(dst_gpu);
+  cudaFree(d_dst);
+}
+
 TEST_F(libmarshal_test, bug528) {
   int h = 16*64;
   int t = 64;
