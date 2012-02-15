@@ -97,9 +97,9 @@ void cpu_soa_asta(float *src, float *dst, int height, int width,
 };
 
 TEST_F(libmarshal_test, bug538) {
-  int h = 256*4096;
-  int t = 64;
-  int w = 10;
+  int h = (65536+2);
+  int t = 2;
+  int w = 2;
   float *src = (float*)malloc(sizeof(float)*h*w);
   float *dst = (float*)malloc(sizeof(float)*h*w);
   float *dst_gpu = (float*)malloc(sizeof(float)*h*w);

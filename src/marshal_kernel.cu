@@ -56,7 +56,8 @@ __global__ static void PTTWAC_marshal(float *input_src,
   int m = tile_size*width - 1;
   for (int gid =blockIdx.x; gid < height/tile_size; gid+=gridDim.x) {
     float *input = input_src + gid*tile_size*width;
-    for (int id = tidx ; id < (tile_size * width + 31) / 32; id += blockDim.x) {
+    for (int id = tidx ; id < (tile_size * width + 31) / 32;
+      id += blockDim.x) {
       finished[id] = 0;
     }
     __syncthreads();
