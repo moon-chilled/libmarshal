@@ -48,34 +48,37 @@ __global__ static void BS_marshal(float *input,
 // convert a[height/tile_size][tile_size][width] to
 // a[height/tile_size][width][tile_size]
 // Launch height/tile_size blocks of NR_THREADS threads
-__global__ static void PTTWAC_marshal(float *input, int tile_size, int width,
+__global__ static void PTTWAC_marshal(float *input_src, 
+  int height, int tile_size, int width,
     clock_t *timer) {
   extern __shared__ unsigned finished[];
   int tidx = threadIdx.x;
   int m = tile_size*width - 1;
-  input += blockIdx.x*tile_size*width;
-  for (int id = tidx ; id < (tile_size * width + 31) / 32; id += blockDim.x) {
-    finished[id] = 0;
-  }
-  __syncthreads();
-  for (;tidx < tile_size*width; tidx += blockDim.x) {
-    int next = (tidx * tile_size) % m;
-    if (tidx != m && next != tidx) {
-      float data1 = input[tidx];
-      unsigned int mask = (1 << (tidx % 32));
-      unsigned int flag_id = (((unsigned int) tidx) >> 5);
-      int done = atomicOr(finished+flag_id, 0);
-      done = (done & mask);
-      for (; done == 0; next = (next * tile_size) % m) {
-        float data2 = input[next];
-        mask = (1 << (next % 32));
-        flag_id = (((unsigned int)next) >> 5);
-        done = atomicOr(finished+flag_id, mask);
+  for (int gid =blockIdx.x; gid < height/tile_size; gid+=gridDim.x) {
+    float *input = input_src + gid*tile_size*width;
+    for (int id = tidx ; id < (tile_size * width + 31) / 32; id += blockDim.x) {
+      finished[id] = 0;
+    }
+    __syncthreads();
+    for (;tidx < tile_size*width; tidx += blockDim.x) {
+      int next = (tidx * tile_size) % m;
+      if (tidx != m && next != tidx) {
+        float data1 = input[tidx];
+        unsigned int mask = (1 << (tidx % 32));
+        unsigned int flag_id = (((unsigned int) tidx) >> 5);
+        int done = atomicOr(finished+flag_id, 0);
         done = (done & mask);
-        if (done == 0) {
-          input[next] = data1;
+        for (; done == 0; next = (next * tile_size) % m) {
+          float data2 = input[next];
+          mask = (1 << (next % 32));
+          flag_id = (((unsigned int)next) >> 5);
+          done = atomicOr(finished+flag_id, mask);
+          done = (done & mask);
+          if (done == 0) {
+            input[next] = data1;
+          }
+          data1 = data2;
         }
-        data1 = data2;
       }
     }
   }
