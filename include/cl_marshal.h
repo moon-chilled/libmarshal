@@ -30,6 +30,6 @@ bool cl_aos_asta_pttwac(cl_command_queue queue, cl_mem src, int height,
 bool cl_soa_asta_pttwac(cl_command_queue queue, cl_mem src, int height,
     int width, int tile_size);
 
-};
+}
 
 #endif // _LIBMARSHAL_INCLUDE_MARSHAL_H_

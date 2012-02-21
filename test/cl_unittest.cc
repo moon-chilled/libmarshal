@@ -97,7 +97,7 @@ void cpu_soa_asta(float *src, float *dst, int height, int width,
   }
 }
 
-};
+}
 
 TEST_F(libmarshal_cl_test, bug537) {
   int h = 16*64;

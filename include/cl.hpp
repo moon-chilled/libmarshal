@@ -712,7 +712,7 @@ namespace detail {
             exchange));
 #endif // !_WIN32
     }
-}; // namespace detail
+} // namespace detail
 
     
 /*!
