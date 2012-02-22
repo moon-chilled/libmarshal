@@ -6,7 +6,7 @@ ENDIF (CUDA_FOUND AND CUDA_MARSHAL)
 
 ADD_CUSTOM_COMMAND(
     OUTPUT embd.cpp embd.hpp
-    COMMAND embd ${CMAKE_CURRENT_SOURCE_DIR}/cl/cl_aos_asta.cl @ cl/cl_aos_asta.cl
+    COMMAND embd ${CMAKE_CURRENT_SOURCE_DIR}/cl/cl_aos_asta.cl @ cl/cl_aos_asta.cl namespace=libmarshal
     WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR} 
     DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/cl/cl_aos_asta.cl
     )

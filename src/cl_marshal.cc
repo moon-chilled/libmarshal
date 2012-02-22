@@ -30,7 +30,7 @@ class MarshalProg {
  public:
   ~MarshalProg() {}
   MarshalProg(void): program(NULL), context_(NULL) {
-    embd::file source_file("cl/cl_aos_asta.cl");
+    libmarshal::file source_file("cl/cl_aos_asta.cl");
     std::istream &in = source_file.istream();
     source_code_ = std::string(std::istreambuf_iterator<char>(in),
 	(std::istreambuf_iterator<char>()));
