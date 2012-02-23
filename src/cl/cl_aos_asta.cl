@@ -83,11 +83,12 @@ __kernel void PTTWAC_marshal(__global float *input, int tile_size, int width,
 __kernel void PTTWAC_marshal_soa(__global float *input, 
     int height, int tile_size,
     int width, __global int *finished) {
-  int m = (height*width)/tile_size-1;
+  height/=tile_size;
+  int m = (height*width)-1;
   int tid = get_local_id(0);
   float data;
   for(int gid = get_group_id(0); gid < m; gid += get_num_groups(0)) {
-    int next_in_cycle = (gid * width)%m;
+    int next_in_cycle = (gid * width)-m*(gid/height);
     if (next_in_cycle == gid)
       continue;
 
@@ -98,7 +99,7 @@ __kernel void PTTWAC_marshal_soa(__global float *input,
       done = atom_or(finished+gid, (int)0); //make sure the read is not cached 
     barrier(CLK_LOCAL_MEM_FENCE|CLK_GLOBAL_MEM_FENCE);
 
-    for (;done == 0; next_in_cycle = (next_in_cycle*width)%m) {
+    for (;done == 0; next_in_cycle = (next_in_cycle*width)-m*(next_in_cycle/height)) {
       float backup = input[next_in_cycle*tile_size+tid];
       barrier(CLK_LOCAL_MEM_FENCE|CLK_GLOBAL_MEM_FENCE);
       if (tid == 0) {
