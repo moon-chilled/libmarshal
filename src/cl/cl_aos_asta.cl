@@ -80,37 +80,36 @@ __kernel void PTTWAC_marshal(__global float *input, int tile_size, int width,
 // convert a[width][height/tile_size][tile_size] to
 // a[height/tile_size][width][tile_size]
 // Launch width*height/tile_size blocks of tile_size threads
-__kernel void PTTWAC_marshal_soa(__global float *input, int tile_size,
+__kernel void PTTWAC_marshal_soa(__global float *input, 
+    int height, int tile_size,
     int width, __global int *finished) {
-  int m = get_num_groups(0)-1;
+  int m = (height*width)/tile_size-1;
   int tid = get_local_id(0);
   float data;
-  int gid = get_group_id(0);
-  if (gid == m)
-    return;
+  for(int gid = get_group_id(0); gid < m; gid += get_num_groups(0)) {
+    int next_in_cycle = (gid * width)%m;
+    if (next_in_cycle == gid)
+      continue;
 
-  int next_in_cycle = (gid * width)%m;
-  if (next_in_cycle == gid)
-    return;
-
-  __local int done;
-  data = input[gid*tile_size+tid];
-  barrier(CLK_LOCAL_MEM_FENCE|CLK_GLOBAL_MEM_FENCE);
-  if (tid == 0)
-    done = atom_or(finished+gid, (int)0); //make sure the read is not cached 
-  barrier(CLK_LOCAL_MEM_FENCE|CLK_GLOBAL_MEM_FENCE);
-
-  for (;done == 0; next_in_cycle = (next_in_cycle*width)%m) {
-    float backup = input[next_in_cycle*tile_size+tid];
+    __local int done;
+    data = input[gid*tile_size+tid];
     barrier(CLK_LOCAL_MEM_FENCE|CLK_GLOBAL_MEM_FENCE);
-    if (tid == 0) {
-      done = atom_xchg(finished+next_in_cycle, (int)1);
-    }
+    if (tid == 0)
+      done = atom_or(finished+gid, (int)0); //make sure the read is not cached 
     barrier(CLK_LOCAL_MEM_FENCE|CLK_GLOBAL_MEM_FENCE);
-    if (!done) {
-      input[next_in_cycle*tile_size+tid] = data;
+
+    for (;done == 0; next_in_cycle = (next_in_cycle*width)%m) {
+      float backup = input[next_in_cycle*tile_size+tid];
+      barrier(CLK_LOCAL_MEM_FENCE|CLK_GLOBAL_MEM_FENCE);
+      if (tid == 0) {
+        done = atom_xchg(finished+next_in_cycle, (int)1);
+      }
+      barrier(CLK_LOCAL_MEM_FENCE|CLK_GLOBAL_MEM_FENCE);
+      if (!done) {
+        input[next_in_cycle*tile_size+tid] = data;
+      }
+      data = backup;
     }
-    data = backup;
   }
 }
 

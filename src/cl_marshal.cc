@@ -155,16 +155,19 @@ extern "C" bool cl_soa_asta_pttwac(cl_command_queue cl_queue,
   cl::Kernel kernel(marshalprog->program, "PTTWAC_marshal_soa");
   if (CL_SUCCESS != kernel.setArg(0, buffer))
     return true;
-  err = kernel.setArg(1, tile_size);
+  err = kernel.setArg(1, height);
   if (err != CL_SUCCESS)
     return true;
-  err = kernel.setArg(2, width);
+  err = kernel.setArg(2, tile_size);
   if (err != CL_SUCCESS)
     return true;
-  err = kernel.setArg(3, d_finished);
+  err = kernel.setArg(3, width);
   if (err != CL_SUCCESS)
     return true;
-  cl::NDRange global(height*width), local(tile_size);
+  err = kernel.setArg(4, d_finished);
+  if (err != CL_SUCCESS)
+    return true;
+  cl::NDRange global(std::min(height*width, tile_size*1024)), local(tile_size);
   err = queue.enqueueNDRangeKernel(kernel, cl::NullRange, global, local);
   if (err != CL_SUCCESS)
     return true;
