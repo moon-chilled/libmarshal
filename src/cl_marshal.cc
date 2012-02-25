@@ -21,8 +21,9 @@
 #include <cstdlib>
 #include <cassert>
 #include <iostream>
-#include "local_cl.hpp"
+#include "cl_profile.h"
 #include "cl_marshal.h"
+#include "local_cl.hpp"
 #include "embd.hpp"
 #include "singleton.hpp"
 namespace {
@@ -55,7 +56,6 @@ class MarshalProg {
   cl::Program::Sources source_;
   std::string source_code_;
   cl_context context_;
-  
 };
 typedef Singleton<MarshalProg> MarshalProgSingleton;
 }
@@ -66,6 +66,7 @@ extern "C" bool cl_aos_asta_bs(cl_command_queue cl_queue,
   // Standard preparation of invoking a kernel
   cl::CommandQueue queue = cl::CommandQueue(cl_queue);
   clRetainCommandQueue(cl_queue);
+  Profiling prof(queue, "AOS-ASTA BS");
   cl::Buffer buffer = cl::Buffer(src);
   clRetainMemObject(src);
   cl::Context context;
@@ -85,18 +86,23 @@ extern "C" bool cl_aos_asta_bs(cl_command_queue cl_queue,
   if (err != CL_SUCCESS)
     return true;
   cl::NDRange global(height, width), local(tile_size, width);
-  err = queue.enqueueNDRangeKernel(kernel, cl::NullRange, global, local);
+  err = queue.enqueueNDRangeKernel(kernel, cl::NullRange, global, local, NULL,
+    prof.GetEvent());
   if (err != CL_SUCCESS)
     return true;
+#ifdef LIBMARSHAL_OCL_PROFILE
+  prof.Report(height*width*sizeof(float)*2);
+#endif
   return false;
 }
 
-#define NR_THREADS 64
+#define NR_THREADS 512 
 extern "C" bool cl_aos_asta_pttwac(cl_command_queue cl_queue,
     cl_mem src, int height, int width, int tile_size) {
   // Standard preparation of invoking a kernel
   cl::CommandQueue queue = cl::CommandQueue(cl_queue);
   clRetainCommandQueue(cl_queue);
+  Profiling prof(queue, "AOS-ASTA PTTWAC");
   cl::Buffer buffer = cl::Buffer(src);
   clRetainMemObject(src);
   cl::Context context;
@@ -120,9 +126,13 @@ extern "C" bool cl_aos_asta_pttwac(cl_command_queue cl_queue,
   if (err != CL_SUCCESS)
     return true;
   cl::NDRange global(height/tile_size*NR_THREADS), local(NR_THREADS);
-  err = queue.enqueueNDRangeKernel(kernel, cl::NullRange, global, local);
+  err = queue.enqueueNDRangeKernel(kernel, cl::NullRange, global, local, NULL,
+    prof.GetEvent());
   if (err != CL_SUCCESS)
     return true;
+#ifdef LIBMARSHAL_OCL_PROFILE
+  prof.Report(height*width*sizeof(float)*2);
+#endif
   return false;
 }
 
@@ -131,6 +141,7 @@ extern "C" bool cl_soa_asta_pttwac(cl_command_queue cl_queue,
     // Standard preparation of invoking a kernel
   cl::CommandQueue queue = cl::CommandQueue(cl_queue);
   clRetainCommandQueue(cl_queue);
+  Profiling prof(queue, "SOA-ASTA PTTWAC");
   cl::Buffer buffer = cl::Buffer(src);
   clRetainMemObject(src);
   cl::Context context;
@@ -168,9 +179,18 @@ extern "C" bool cl_soa_asta_pttwac(cl_command_queue cl_queue,
   if (err != CL_SUCCESS)
     return true;
   cl::NDRange global(std::min(height*width, tile_size*1024)), local(tile_size);
-  err = queue.enqueueNDRangeKernel(kernel, cl::NullRange, global, local);
+  err = queue.enqueueNDRangeKernel(kernel, cl::NullRange, global, local,
+    NULL, prof.GetEvent());
   if (err != CL_SUCCESS)
     return true;
+#ifdef LIBMARSHAL_OCL_PROFILE
+  prof.Report(height*width*sizeof(float)*2);
+#endif
   return false;
 }
 
+extern "C" bool cl_aos_asta(cl_command_queue queue, cl_mem src, int height,
+  int width, int tile_size) {
+  return cl_aos_asta_bs(queue, src, height, width, tile_size) &&
+    cl_aos_asta_pttwac(queue, src, height, width, tile_size);
+}

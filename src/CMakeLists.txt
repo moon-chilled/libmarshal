@@ -1,8 +1,13 @@
-option(CUDA_MARSHAL "Enable CUDA marshaling" ON)
+option(CUDA_MARSHAL "[libmarshal] Enable CUDA marshaling" ON)
+option(LIBMARSHAL_OCL_PROFILE "[libmarshal] Turn on profiling of marshaling kernels" ON)
 IF (CUDA_FOUND AND CUDA_MARSHAL)
 SET (CUDA_NVCC_FLAGS -arch sm_12)
 CUDA_ADD_LIBRARY(marshal marshal.cu)
 ENDIF (CUDA_FOUND AND CUDA_MARSHAL)
+
+IF(LIBMARSHAL_OCL_PROFILE)
+  ADD_DEFINITIONS(-DLIBMARSHAL_OCL_PROFILE)
+ENDIF(LIBMARSHAL_OCL_PROFILE)
 
 ADD_CUSTOM_COMMAND(
     OUTPUT embd.cpp embd.hpp
