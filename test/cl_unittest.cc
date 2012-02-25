@@ -1,4 +1,4 @@
-#include <cl.hpp>
+#include "local_cl.hpp"
 #include <gtest/gtest.h>
 #include <cstdlib>
 #include <string>

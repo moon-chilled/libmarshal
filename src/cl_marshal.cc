@@ -21,7 +21,7 @@
 #include <cstdlib>
 #include <cassert>
 #include <iostream>
-#include <cl.hpp>
+#include "local_cl.hpp"
 #include "cl_marshal.h"
 #include "embd.hpp"
 #include "singleton.hpp"
