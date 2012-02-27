@@ -43,6 +43,36 @@ __kernel void BS_marshal (__global float *input, int tile_size, int width) {
 // convert a[height/tile_size][tile_size][width] to
 // a[height/tile_size][width][tile_size]
 // Launch height/tile_size blocks of NR_THREADS threads
+__kernel void PTTWAC_marshal_w(__global float *input, int tile_size, int width,
+    __local uint *finished) {
+  int tidx = get_local_id(0);
+  int m = tile_size*width - 1;
+  input += get_group_id(0)*tile_size*width;
+  for (int id = tidx ; id < (tile_size * width);
+      id += get_local_size(0)) {
+    finished[id] = 0;
+  }
+  barrier(CLK_LOCAL_MEM_FENCE|CLK_GLOBAL_MEM_FENCE);
+  for (;tidx < tile_size*width; tidx += get_local_size(0)) {
+    int next = (tidx * tile_size) % m;
+    if (tidx != m && next != tidx) {
+      float data1 = input[tidx];
+      int done = atom_or(&finished[tidx], 0);
+      for (; done == 0; next = (next * tile_size) % m) {
+        float data2 = input[next];
+        done = atom_xchg(finished+next, (int)1);
+        if (done == 0) {
+          input[next] = data1;
+        }
+        data1 = data2;
+      }
+    }
+  }
+}
+// limitations: height must be multiple of tile_size
+// convert a[height/tile_size][tile_size][width] to
+// a[height/tile_size][width][tile_size]
+// Launch height/tile_size blocks of NR_THREADS threads
 __kernel void PTTWAC_marshal(__global float *input, int tile_size, int width,
     __local uint *finished) {
   int tidx = get_local_id(0);

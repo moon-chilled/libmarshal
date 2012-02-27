@@ -97,6 +97,7 @@ extern "C" bool cl_aos_asta_bs(cl_command_queue cl_queue,
 }
 
 #define NR_THREADS 512 
+#define WORD_ATOMIC 0
 extern "C" bool cl_aos_asta_pttwac(cl_command_queue cl_queue,
     cl_mem src, int height, int width, int tile_size) {
   // Standard preparation of invoking a kernel
@@ -113,7 +114,11 @@ extern "C" bool cl_aos_asta_pttwac(cl_command_queue cl_queue,
   marshalprog->Init(context());
 
   assert ((height/tile_size)*tile_size == height);
+#if WORD_ATOMIC
+  cl::Kernel kernel(marshalprog->program, "PTTWAC_marshal_w");
+#else
   cl::Kernel kernel(marshalprog->program, "PTTWAC_marshal");
+#endif
   if (CL_SUCCESS != kernel.setArg(0, buffer))
     return true;
   cl_int err = kernel.setArg(1, tile_size);
@@ -122,7 +127,11 @@ extern "C" bool cl_aos_asta_pttwac(cl_command_queue cl_queue,
   err = kernel.setArg(2, width);
   if (err != CL_SUCCESS)
     return true;
+#if WORD_ATOMIC
+  err = kernel.setArg(3, tile_size*width*sizeof(cl_uint), NULL);
+#else
   err = kernel.setArg(3, ((tile_size*width+31)/32)*sizeof(cl_uint), NULL);
+#endif
   if (err != CL_SUCCESS)
     return true;
   cl::NDRange global(height/tile_size*NR_THREADS), local(NR_THREADS);
