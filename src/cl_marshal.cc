@@ -96,7 +96,7 @@ extern "C" bool cl_aos_asta_bs(cl_command_queue cl_queue,
   return false;
 }
 
-#define NR_THREADS 512 
+#define NR_THREADS 256
 #define WORD_ATOMIC 0
 extern "C" bool cl_aos_asta_pttwac(cl_command_queue cl_queue,
     cl_mem src, int height, int width, int tile_size) {
