@@ -47,6 +47,7 @@ __kernel void PTTWAC_marshal(__global float *input, int tile_size,
   int nr_block, int width, __local uint *finished) {
   int tidx = get_local_id(0);
   int m = tile_size*width - 1;
+  int height = nr_block * get_local_size(0);
   __global float *input1 = input + get_group_id(0)*2*tile_size*width;
   __global float *input2 = input + (get_group_id(0)*2+1)*tile_size*width;
   int do_second = true;
@@ -58,7 +59,7 @@ __kernel void PTTWAC_marshal(__global float *input, int tile_size,
   }
   barrier(CLK_LOCAL_MEM_FENCE|CLK_GLOBAL_MEM_FENCE);
   for (;tidx < tile_size*width; tidx += get_local_size(0)) {
-    int next = (tidx * tile_size) % m;
+    int next = (tidx * tile_size)-m*(tidx/width);
     if (tidx != m && next != tidx) {
       float data1 = input1[tidx];
       float data3 = do_second?input2[tidx]:0.0f;
@@ -66,7 +67,8 @@ __kernel void PTTWAC_marshal(__global float *input, int tile_size,
       unsigned int flag_id = (((unsigned int) tidx) >> 5);
       int done = atom_or(finished+flag_id, 0);
       done = (done & mask);
-      for (; done == 0; next = (next * tile_size) % m) {
+      for (; done == 0; next = (next * tile_size) - m*(next/width)) {
+        
         float data2 = input1[next];
         float data4 = do_second?input2[next]:0.0f;
         mask = (1 << (next % 32));
