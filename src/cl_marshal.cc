@@ -124,7 +124,7 @@ extern "C" bool cl_aos_asta_pttwac(cl_command_queue cl_queue,
   err = kernel.setArg(3, width);
   if (err != CL_SUCCESS)
     return true;
-  err = kernel.setArg(4, ((tile_size*width+31)/32)*sizeof(cl_uint), NULL);
+  err = kernel.setArg(4, ((tile_size*width+15)/16)*sizeof(cl_uint), NULL);
   if (err != CL_SUCCESS)
     return true;
   cl::NDRange global((height/tile_size+1)/2*NR_THREADS), local(NR_THREADS);
