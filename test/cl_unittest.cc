@@ -156,9 +156,9 @@ TEST_F(libmarshal_cl_test, bug536) {
 }
 
 TEST_F(libmarshal_cl_test, bug533) {
-  int h = 16*1024;
-  int w = 6;
   int t = 16;
+  int h = (100*100*130+t-1)/t*t;
+  int w = 20;
   float *src = (float*)malloc(sizeof(float)*h*w);
   float *dst = (float*)malloc(sizeof(float)*h*w);
   float *dst_gpu = (float*)malloc(sizeof(float)*h*w);
