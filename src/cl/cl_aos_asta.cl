@@ -43,8 +43,8 @@ __kernel void BS_marshal (__global float *input, int tile_size, int width) {
 // convert a[height/tile_size][tile_size][width] to
 // a[height/tile_size][width][tile_size]
 // Launch height/tile_size blocks of NR_THREADS threads
-__kernel void PTTWAC_marshal(__global float *input, int tile_size, int width,
-    __local uint *finished, int nr_block) {
+__kernel void PTTWAC_marshal(__global float *input, int tile_size, 
+  int nr_block, int width, __local uint *finished) {
   int tidx = get_local_id(0);
   int m = tile_size*width - 1;
   __global float *input1 = input + get_group_id(0)*2*tile_size*width;
