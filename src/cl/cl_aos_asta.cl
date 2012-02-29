@@ -29,14 +29,20 @@
 // convert a[height/tile_size][tile_size][width] to
 // a[height/tile_size][width][tile_size]
 // Launch height/tile_size blocks of tile_size*width threads
-__kernel void BS_marshal (__global float *input, int tile_size, int width) {
-  int tidx = get_local_id(1);
-  int tidy = get_local_id(0);
+__kernel void BS_marshal (__global float *input, int tile_size, int width,
+  __local float *store) {
+  int tidx = get_local_id(0);
+  int m = width*tile_size-1;
   int bid = get_group_id(0);
   input += tile_size*width*bid;
-  float tmp = input[tidy*width+tidx];
-  barrier(CLK_LOCAL_MEM_FENCE|CLK_GLOBAL_MEM_FENCE);
-  input[tidx*tile_size+tidy] = tmp;
+  for (int i = tidx; i < tile_size*width; i+=get_local_size(0)) {
+    int next = (i * tile_size)-m*(i/width);
+    store[next] = input[i];
+  }
+  barrier(CLK_GLOBAL_MEM_FENCE|CLK_LOCAL_MEM_FENCE);
+  for (int i = tidx; i < tile_size*width; i+=get_local_size(0)) {
+    input[i] = store[i];
+  }
 }
 
 // limitations: height must be multiple of tile_size

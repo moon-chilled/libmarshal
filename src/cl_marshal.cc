@@ -60,6 +60,7 @@ class MarshalProg {
 typedef Singleton<MarshalProg> MarshalProgSingleton;
 }
 
+#define NR_THREADS 256
 extern "C" bool cl_aos_asta_bs(cl_command_queue cl_queue,
     cl_mem src, int height, int width,
     int tile_size) {
@@ -83,9 +84,10 @@ extern "C" bool cl_aos_asta_bs(cl_command_queue cl_queue,
   if (err != CL_SUCCESS)
     return true;
   err = kernel.setArg(2, width);
+  err |= kernel.setArg(3, width*tile_size*sizeof(cl_float), NULL);
   if (err != CL_SUCCESS)
     return true;
-  cl::NDRange global(height, width), local(tile_size, width);
+  cl::NDRange global(height/tile_size*NR_THREADS), local(NR_THREADS);
   err = queue.enqueueNDRangeKernel(kernel, cl::NullRange, global, local, NULL,
     prof.GetEvent());
   if (err != CL_SUCCESS)
@@ -96,7 +98,6 @@ extern "C" bool cl_aos_asta_bs(cl_command_queue cl_queue,
   return false;
 }
 
-#define NR_THREADS 256
 extern "C" bool cl_aos_asta_pttwac(cl_command_queue cl_queue,
     cl_mem src, int height, int width, int tile_size) {
   // Standard preparation of invoking a kernel
