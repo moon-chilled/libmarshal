@@ -43,41 +43,15 @@ __kernel void BS_marshal (__global float *input, int tile_size, int width) {
 // convert a[height/tile_size][tile_size][width] to
 // a[height/tile_size][width][tile_size]
 // Launch height/tile_size blocks of NR_THREADS threads
-__kernel void PTTWAC_marshal_w(__global float *input, int tile_size, int width,
-    __local uint *finished) {
-  int tidx = get_local_id(0);
-  int m = tile_size*width - 1;
-  input += get_group_id(0)*tile_size*width;
-  for (int id = tidx ; id < (tile_size * width);
-      id += get_local_size(0)) {
-    finished[id] = 0;
-  }
-  barrier(CLK_LOCAL_MEM_FENCE|CLK_GLOBAL_MEM_FENCE);
-  for (;tidx < tile_size*width; tidx += get_local_size(0)) {
-    int next = (tidx * tile_size) % m;
-    if (tidx != m && next != tidx) {
-      float data1 = input[tidx];
-      int done = atom_or(&finished[tidx], 0);
-      for (; done == 0; next = (next * tile_size) % m) {
-        float data2 = input[next];
-        done = atom_xchg(finished+next, (int)1);
-        if (done == 0) {
-          input[next] = data1;
-        }
-        data1 = data2;
-      }
-    }
-  }
-}
-// limitations: height must be multiple of tile_size
-// convert a[height/tile_size][tile_size][width] to
-// a[height/tile_size][width][tile_size]
-// Launch height/tile_size blocks of NR_THREADS threads
 __kernel void PTTWAC_marshal(__global float *input, int tile_size, int width,
-    __local uint *finished) {
+    __local uint *finished, int nr_block) {
   int tidx = get_local_id(0);
   int m = tile_size*width - 1;
-  input += get_group_id(0)*tile_size*width;
+  __global float *input1 = input + get_group_id(0)*2*tile_size*width;
+  __global float *input2 = input + (get_group_id(0)*2+1)*tile_size*width;
+  int do_second = true;
+  if ((get_group_id(0)*2)>=(nr_block-1))
+    do_second = false;
   for (int id = tidx ; id < (tile_size * width + 31) / 32;
       id += get_local_size(0)) {
     finished[id] = 0;
@@ -86,21 +60,25 @@ __kernel void PTTWAC_marshal(__global float *input, int tile_size, int width,
   for (;tidx < tile_size*width; tidx += get_local_size(0)) {
     int next = (tidx * tile_size) % m;
     if (tidx != m && next != tidx) {
-      float data1 = input[tidx];
+      float data1 = input1[tidx];
+      float data3 = do_second?input2[tidx]:0.0f;
       unsigned int mask = (1 << (tidx % 32));
       unsigned int flag_id = (((unsigned int) tidx) >> 5);
       int done = atom_or(finished+flag_id, 0);
       done = (done & mask);
       for (; done == 0; next = (next * tile_size) % m) {
-        float data2 = input[next];
+        float data2 = input1[next];
+        float data4 = do_second?input2[next]:0.0f;
         mask = (1 << (next % 32));
         flag_id = (((unsigned int)next) >> 5);
         done = atom_or(finished+flag_id, mask);
         done = (done & mask);
         if (done == 0) {
-          input[next] = data1;
+          input1[next] = data1;
+          if(do_second) input2[next] = data3;
         }
         data1 = data2;
+        data3 = data4;
       }
     }
   }
