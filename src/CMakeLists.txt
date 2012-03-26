@@ -1,7 +1,7 @@
 option(CUDA_MARSHAL "[libmarshal] Enable CUDA marshaling" ON)
 option(LIBMARSHAL_OCL_PROFILE "[libmarshal] Turn on profiling of marshaling kernels" ON)
 IF (CUDA_FOUND AND CUDA_MARSHAL)
-SET (CUDA_NVCC_FLAGS -arch sm_12)
+SET (CUDA_NVCC_FLAGS -arch sm_20)
 CUDA_ADD_LIBRARY(marshal marshal.cu)
 ENDIF (CUDA_FOUND AND CUDA_MARSHAL)
 

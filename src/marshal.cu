@@ -23,7 +23,9 @@
 #include <iostream>
 #include "marshal.h"
 #include "marshal_kernel.cu"
-extern "C" bool gpu_aos_asta_bs(float *src, int height, int width,
+
+template <class T>
+bool gpu_aos_asta_bs_t(T *src, int height, int width,
     int tile_size, clock_t *timer) {
   assert ((height/tile_size)*tile_size == height);
   dim3 threads (width, tile_size, 1);
@@ -33,6 +35,15 @@ extern "C" bool gpu_aos_asta_bs(float *src, int height, int width,
     std::cerr << cudaGetErrorString(err) << std::endl;
   }
   return cudaSuccess != err;
+}
+
+extern "C" bool gpu_aos_asta_bs_float(float *src, int height, int width,
+  int tile_size, clock_t *timer) {
+  return gpu_aos_asta_bs_t(src, height, width, tile_size, timer);
+}
+extern "C" bool gpu_aos_asta_bs_double(double *src, int height, int width,
+  int tile_size, clock_t *timer) {
+  return gpu_aos_asta_bs_t<double>(src, height, width, tile_size, timer);
 }
 
 #define NR_THREADS 64

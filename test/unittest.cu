@@ -65,13 +65,14 @@ int generate_vector(T *x_vector, int dim)
   return 0;
 }
 
-void cpu_aos_asta(float *src, float *dst, int height, int width,
+template <class T>
+void cpu_aos_asta(T *src, T *dst, int height, int width,
     int tile_size) {
   // We only support height == multiple of tile size
   assert((height/tile_size)*tile_size == height);
   for (int i = 0; i<height/tile_size; i++) { //For all tiles
-    float *src_start = src+i*tile_size*width;
-    float *dst_start = dst+i*tile_size*width;
+    T *src_start = src+i*tile_size*width;
+    T *dst_start = dst+i*tile_size*width;
     for(int j = 0; j < tile_size; j++) {
       for (int k = 0; k < width; k++) {
         dst_start[j+k*tile_size]=src_start[j*width+k];
@@ -207,10 +208,35 @@ TEST_F(libmarshal_test, bug523) {
   float *d_dst;
   cudaMalloc(&d_dst, sizeof(float)*h*w);
   cudaMemcpy(d_dst, src, sizeof(float)*h*w, cudaMemcpyHostToDevice);
-  bool r = gpu_aos_asta_bs(d_dst, h, w, t, NULL);
+  bool r = gpu_aos_asta_bs_float(d_dst, h, w, t, NULL);
   ASSERT_EQ(false, r);
   
   cudaMemcpy(dst_gpu, d_dst, sizeof(float)*h*w, cudaMemcpyDeviceToHost);
+
+  EXPECT_EQ(0, compare_output(dst_gpu, dst, h*w));
+  free(src);
+  free(dst);
+  free(dst_gpu);
+  cudaFree(d_dst);
+}
+
+TEST_F(libmarshal_test, bug523d) {
+  int h = 16*1024;
+  int w = 6;
+  int t = 16;
+  double *src = (double*)malloc(sizeof(double)*h*w);
+  double *dst = (double*)malloc(sizeof(double)*h*w);
+  double *dst_gpu = (double*)malloc(sizeof(double)*h*w);
+  generate_vector(src, h*w);
+  cpu_aos_asta(src, dst, h, w, t);
+
+  double *d_dst;
+  cudaMalloc(&d_dst, sizeof(double)*h*w);
+  cudaMemcpy(d_dst, src, sizeof(double)*h*w, cudaMemcpyHostToDevice);
+  bool r = gpu_aos_asta_bs_double(d_dst, h, w, t, NULL);
+  ASSERT_EQ(false, r);
+  
+  cudaMemcpy(dst_gpu, d_dst, sizeof(double)*h*w, cudaMemcpyDeviceToHost);
 
   EXPECT_EQ(0, compare_output(dst_gpu, dst, h*w));
   free(src);

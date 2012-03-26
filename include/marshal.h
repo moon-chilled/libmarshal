@@ -23,11 +23,13 @@
 
 extern "C" {
 
-bool gpu_aos_asta_bs(float *src, int height, int width, int tile_size, clock_t *timer);
+bool gpu_aos_asta_bs_float(float *src, int height, int width, int tile_size, clock_t *timer);
+bool gpu_aos_asta_bs_double(double *src, int height, int width, int tile_size, clock_t *timer);
 
 bool gpu_aos_asta_pttwac(float *src, int height, int width, int tile_size, clock_t *timer);
 
 bool gpu_soa_asta_pttwac(float *src, int height, int width, int tile_size, clock_t *timer);
+
 };
 
 #endif // _LIBMARSHAL_INCLUDE_MARSHAL_H_

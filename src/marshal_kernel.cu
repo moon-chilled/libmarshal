@@ -27,21 +27,18 @@
 // convert a[height/tile_size][tile_size][width] to
 // a[height/tile_size][width][tile_size]
 // Launch height/tile_size blocks of tile_size*width threads
-__global__ static void BS_marshal(float *input,
+template <class T>
+__global__ static void BS_marshal(T *input,
     int tile_size, int width, clock_t *timer) {
 //  clock_t time1 = clock();
   int tidx = threadIdx.x;
-  int tidy = threadIdx.y;
   int bid = blockIdx.x;
   input += tile_size*width*bid;
-  float tmp = input[tidy*width+tidx];
+  int tidy = threadIdx.y;
+  T tmp = input[tidy*width+tidx];
   __syncthreads();
   __threadfence();
   input[tidx*tile_size+tidy] = tmp;
-#if 0
-  if (tid == 0)
-    timer[bid] = clock() - time1;
-#endif
 }
 
 // limitations: height must be multiple of tile_size
