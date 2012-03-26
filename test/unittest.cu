@@ -30,12 +30,12 @@ class libmarshal_test : public ::testing::Test {
   libmarshal_test() {}
 //};
 
-
-int compare_output(float *output, float *ref, int dim) {
+template<class T>
+int compare_output(T *output, T *ref, int dim) {
   int pass = 1;
   int i;
   for (i = 0; i < dim; i++) {
-    float diff = fabs(ref[i] - output[i]);
+    T diff = fabs(ref[i] - output[i]);
     if ((diff - 0.0f) > 0.00001f && diff > 0.01*fabs(ref[i])) {
       printf("line: %d ref: %f actual: %f diff: %f\n",
           i, ref[i], output[i], diff);
@@ -55,11 +55,12 @@ int compare_output(float *output, float *ref, int dim) {
 }
 
 // Generate a matrix of random numbers
-int generate_vector(float *x_vector, int dim) 
+template <class T>
+int generate_vector(T *x_vector, int dim) 
 {       
   srand(5432);
   for(int i=0;i<dim;i++) {
-    x_vector[i] = ((float) (rand() % 100) / 100);
+    x_vector[i] = ((T) (rand() % 100) / 100);
   }
   return 0;
 }
