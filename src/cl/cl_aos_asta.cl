@@ -108,7 +108,23 @@ __kernel void PTTWAC_marshal_soa(__global float *input,
     int next_in_cycle = (gid * width)-m*(gid/height);
     if (next_in_cycle == gid)
       continue;
-
+#define P_IPT 1
+#if P_IPT
+    for (;next_in_cycle > gid;
+      next_in_cycle = (next_in_cycle*width)-m*(next_in_cycle/height))
+      ;
+    if (next_in_cycle !=gid)
+      continue;
+    data = input[gid*tile_size+tid];
+    for (next_in_cycle = (gid * width)-m*(gid/height);
+      next_in_cycle > gid;
+      next_in_cycle = (next_in_cycle*width)-m*(next_in_cycle/height)) {
+      float backup = input[next_in_cycle*tile_size+tid];
+      input[next_in_cycle*tile_size+tid] = data;
+      data = backup;
+    }
+    input[gid*tile_size+tid] = data;
+#else
     __local int done;
     data = input[gid*tile_size+tid];
     barrier(CLK_LOCAL_MEM_FENCE|CLK_GLOBAL_MEM_FENCE);
@@ -128,6 +144,7 @@ __kernel void PTTWAC_marshal_soa(__global float *input,
       }
       data = backup;
     }
+#endif
   }
 }
 
