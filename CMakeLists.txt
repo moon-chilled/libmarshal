@@ -26,6 +26,7 @@ MESSAGE(${CMAKE_PROJECT_NAME} " include directories: \n")
 get_directory_property(includes INCLUDE_DIRECTORIES)
 message("${includes}\n")
 
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fexceptions")
 ADD_SUBDIRECTORY(gtest)
 ADD_SUBDIRECTORY(src)
 ADD_SUBDIRECTORY(tools)
