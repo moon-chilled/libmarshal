@@ -73,7 +73,6 @@ extern "C" bool cl_aos_asta_bs(cl_command_queue cl_queue,
   cl::Context context;
   if(buffer.getInfo(CL_MEM_CONTEXT, &context) != CL_SUCCESS)
     return true;
-  clRetainContext(context());
   MarshalProg *marshalprog = MarshalProgSingleton::Instance();
   marshalprog->Init(context());
 
@@ -109,7 +108,6 @@ extern "C" bool cl_aos_asta_pttwac(cl_command_queue cl_queue,
   cl::Context context;
   if(buffer.getInfo(CL_MEM_CONTEXT, &context) != CL_SUCCESS)
     return true;
-  clRetainContext(context());
   MarshalProg *marshalprog = MarshalProgSingleton::Instance();
   marshalprog->Init(context());
 
@@ -149,7 +147,6 @@ extern "C" bool cl_soa_asta_pttwac(cl_command_queue cl_queue,
   cl::Context context;
   if(buffer.getInfo(CL_MEM_CONTEXT, &context) != CL_SUCCESS)
     return true;
-  clRetainContext(context());
   MarshalProg *marshalprog = MarshalProgSingleton::Instance();
   marshalprog->Init(context());
 
