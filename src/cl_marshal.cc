@@ -92,7 +92,6 @@ extern "C" bool cl_aos_asta_bs(cl_command_queue cl_queue,
     int tile_size) {
   // Standard preparation of invoking a kernel
   cl::CommandQueue queue = cl::CommandQueue(cl_queue);
-  clRetainCommandQueue(cl_queue);
   Profiling prof(queue, "AOS-ASTA BS");
   cl::Buffer buffer = cl::Buffer(src);
   clRetainMemObject(src);
@@ -129,7 +128,6 @@ extern "C" bool cl_aos_asta_pttwac(cl_command_queue cl_queue,
     cl_mem src, int height, int width, int tile_size) {
   // Standard preparation of invoking a kernel
   cl::CommandQueue queue = cl::CommandQueue(cl_queue);
-  clRetainCommandQueue(cl_queue);
   Profiling prof(queue, "AOS-ASTA PTTWAC");
   cl::Buffer buffer = cl::Buffer(src);
   clRetainMemObject(src);
@@ -168,7 +166,6 @@ extern "C" bool cl_soa_asta_pttwac(cl_command_queue cl_queue,
     cl_mem src, int height, int width, int tile_size) {
     // Standard preparation of invoking a kernel
   cl::CommandQueue queue = cl::CommandQueue(cl_queue);
-  clRetainCommandQueue(cl_queue);
   Profiling prof(queue, "SOA-ASTA PTTWAC");
   cl::Buffer buffer = cl::Buffer(src);
   clRetainMemObject(src);
