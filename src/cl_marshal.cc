@@ -71,7 +71,10 @@ class MarshalProg {
 };
 typedef Singleton<MarshalProg> MarshalProgSingleton;
 }
-
+extern "C" void cl_marshal_finalize(void) {
+  MarshalProg *marshalprog = MarshalProgSingleton::Instance();
+  marshalprog->program = cl::Program();
+}
 #define NR_THREADS 256
 #define IS_POW2(x) (x && !(x &( x- 1)))
 //#define IS_POW2(x) 0

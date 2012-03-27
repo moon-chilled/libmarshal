@@ -40,7 +40,9 @@ void libmarshal_cl_test::SetUp(void) {
   queue_ = new cl::CommandQueue(*context_, devices[0]);
 }
 
+extern "C" void cl_marshal_finalize(void);
 void libmarshal_cl_test::TearDown(void) {
+  cl_marshal_finalize();
   delete queue_;
   delete context_;
 }
