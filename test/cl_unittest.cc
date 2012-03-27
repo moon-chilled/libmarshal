@@ -7,6 +7,13 @@
 #include "cl_marshal.h"
 namespace {
 class libmarshal_cl_test : public ::testing::Test {
+ public:
+  cl_uint GetCtxRef(void) const {
+    cl_uint rc;
+    clGetContextInfo((*context_)(),
+	CL_CONTEXT_REFERENCE_COUNT, sizeof(cl_uint), &rc, NULL);
+    return rc;
+  }
  protected:
   virtual void SetUp(void);
   virtual void TearDown(void);
@@ -118,7 +125,10 @@ TEST_F(libmarshal_cl_test, bug537) {
     ASSERT_EQ(err, CL_SUCCESS);
     ASSERT_EQ(queue_->enqueueWriteBuffer(
           d_dst, CL_TRUE, 0, sizeof(float)*h*w, src), CL_SUCCESS);
+    cl_uint oldref = GetCtxRef();
     bool r = cl_soa_asta_pttwac((*queue_)(), d_dst(), h, w, t);
+    cl_uint newref = GetCtxRef();
+    EXPECT_EQ(oldref, newref);
     ASSERT_EQ(false, r);
     ASSERT_EQ(queue_->enqueueReadBuffer(d_dst, CL_TRUE, 0, sizeof(float)*h*w,
           dst_gpu), CL_SUCCESS);
@@ -148,7 +158,10 @@ TEST_F(libmarshal_cl_test, bug536) {
     ASSERT_EQ(err, CL_SUCCESS);
     ASSERT_EQ(queue_->enqueueWriteBuffer(
           d_dst, CL_TRUE, 0, sizeof(float)*h*w, src), CL_SUCCESS);
+    cl_uint oldref = GetCtxRef();
     bool r = cl_aos_asta_pttwac((*queue_)(), d_dst(), h, w, t);
+    cl_uint newref = GetCtxRef();
+    EXPECT_EQ(oldref, newref);
     ASSERT_EQ(false, r);
     ASSERT_EQ(queue_->enqueueReadBuffer(d_dst, CL_TRUE, 0, sizeof(float)*h*w,
           dst_gpu), CL_SUCCESS);
@@ -174,7 +187,9 @@ TEST_F(libmarshal_cl_test, bug533) {
   ASSERT_EQ(err, CL_SUCCESS);
   ASSERT_EQ(queue_->enqueueWriteBuffer(
         d_dst, CL_TRUE, 0, sizeof(float)*h*w, src), CL_SUCCESS);
+  cl_uint oldref = GetCtxRef();
   bool r = cl_aos_asta_bs((*queue_)(), d_dst(), h, w, t);
+  EXPECT_EQ(oldref, GetCtxRef());
   ASSERT_EQ(false, r);
   ASSERT_EQ(queue_->enqueueReadBuffer(d_dst, CL_TRUE, 0, sizeof(float)*h*w,
         dst_gpu), CL_SUCCESS);
