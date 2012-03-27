@@ -10,8 +10,11 @@ class libmarshal_cl_test : public ::testing::Test {
  public:
   cl_uint GetCtxRef(void) const {
     cl_uint rc;
-    clGetContextInfo((*context_)(),
-	CL_CONTEXT_REFERENCE_COUNT, sizeof(cl_uint), &rc, NULL);
+    rc = context_->getInfo<CL_CONTEXT_REFERENCE_COUNT>();
+    return rc;
+  }
+  cl_uint GetQRef(void) const {
+    cl_uint rc = queue_->getInfo<CL_QUEUE_REFERENCE_COUNT>();
     return rc;
   }
  protected:
@@ -123,12 +126,13 @@ TEST_F(libmarshal_cl_test, bug537) {
     cl::Buffer d_dst = cl::Buffer(*context_, CL_MEM_READ_WRITE,
         sizeof(float)*h*w, NULL, &err);
     ASSERT_EQ(err, CL_SUCCESS);
+    cl_uint oldqref = GetQRef();
     ASSERT_EQ(queue_->enqueueWriteBuffer(
           d_dst, CL_TRUE, 0, sizeof(float)*h*w, src), CL_SUCCESS);
     cl_uint oldref = GetCtxRef();
     bool r = cl_soa_asta_pttwac((*queue_)(), d_dst(), h, w, t);
-    cl_uint newref = GetCtxRef();
-    EXPECT_EQ(oldref, newref);
+    EXPECT_EQ(oldref, GetCtxRef());
+    EXPECT_EQ(oldqref, GetQRef());
     ASSERT_EQ(false, r);
     ASSERT_EQ(queue_->enqueueReadBuffer(d_dst, CL_TRUE, 0, sizeof(float)*h*w,
           dst_gpu), CL_SUCCESS);
@@ -159,9 +163,10 @@ TEST_F(libmarshal_cl_test, bug536) {
     ASSERT_EQ(queue_->enqueueWriteBuffer(
           d_dst, CL_TRUE, 0, sizeof(float)*h*w, src), CL_SUCCESS);
     cl_uint oldref = GetCtxRef();
+    cl_uint oldqref = GetQRef();
     bool r = cl_aos_asta_pttwac((*queue_)(), d_dst(), h, w, t);
-    cl_uint newref = GetCtxRef();
-    EXPECT_EQ(oldref, newref);
+    EXPECT_EQ(oldref, GetCtxRef());
+    EXPECT_EQ(oldqref, GetQRef());
     ASSERT_EQ(false, r);
     ASSERT_EQ(queue_->enqueueReadBuffer(d_dst, CL_TRUE, 0, sizeof(float)*h*w,
           dst_gpu), CL_SUCCESS);
@@ -188,8 +193,10 @@ TEST_F(libmarshal_cl_test, bug533) {
     ASSERT_EQ(queue_->enqueueWriteBuffer(
 	  d_dst, CL_TRUE, 0, sizeof(float)*h*w, src), CL_SUCCESS);
     cl_uint oldref = GetCtxRef();
+    cl_uint oldqref = GetQRef();
     bool r = cl_aos_asta_bs((*queue_)(), d_dst(), h, w, t);
     EXPECT_EQ(oldref, GetCtxRef());
+    EXPECT_EQ(oldqref, GetQRef());
     ASSERT_EQ(false, r);
     ASSERT_EQ(queue_->enqueueReadBuffer(d_dst, CL_TRUE, 0, sizeof(float)*h*w,
 	  dst_gpu), CL_SUCCESS);
