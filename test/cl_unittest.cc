@@ -19,6 +19,7 @@ class libmarshal_cl_test : public ::testing::Test {
 void libmarshal_cl_test::SetUp(void) {
   cl_int err;
   context_ = new cl::Context(CL_DEVICE_TYPE_GPU, NULL, NULL, NULL, &err);
+  queue_ = NULL;
   ASSERT_EQ(err, CL_SUCCESS);
   std::vector<cl::Device> devices = context_->getInfo<CL_CONTEXT_DEVICES>();
   // Get name of the devices
