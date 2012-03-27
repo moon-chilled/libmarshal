@@ -62,7 +62,10 @@ class MarshalProg {
     }
     return false;
   }
-
+  void Finalize(void) {
+    program = cl::Program();
+    context_ = NULL;
+  }
   cl::Program program;
  private:
   cl::Program::Sources source_;
@@ -73,7 +76,7 @@ typedef Singleton<MarshalProg> MarshalProgSingleton;
 }
 extern "C" void cl_marshal_finalize(void) {
   MarshalProg *marshalprog = MarshalProgSingleton::Instance();
-  marshalprog->program = cl::Program();
+  marshalprog->Finalize();
 }
 #define NR_THREADS 256
 #define IS_POW2(x) (x && !(x &( x- 1)))
