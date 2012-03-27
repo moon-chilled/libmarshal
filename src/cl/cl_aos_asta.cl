@@ -39,9 +39,28 @@ __kernel void BS_marshal (__global float *input, int tile_size, int width,
     int next = (i * tile_size)-m*(i/width);
     store[next] = input[i];
   }
-  barrier(CLK_GLOBAL_MEM_FENCE|CLK_LOCAL_MEM_FENCE);
+  barrier(CLK_LOCAL_MEM_FENCE);
   for (int i = tidx; i < tile_size*width; i+=get_local_size(0)) {
     input[i] = store[i];
+  }
+}
+// Optimized version for tile size == power of 2
+// Padding shared memory is necessary to reduce conflicts
+__kernel void BS_marshal_power2 (__global float *input, int lg2_tile_size, int width,
+  __local float *store) {
+#define SHMT lg2_tile_size 
+  int tidx = get_local_id(0);
+  int m = (width<<SHMT)-1;
+  int bid = get_group_id(0);
+  input += ((width*bid)<<SHMT); //tile_size*width*bid;
+  for (int i = tidx; i < (width<<SHMT) ; i+=get_local_size(0)) {
+    int next = (i << SHMT)-m*(i/width);
+#define PAD(x) ((x)+((x)>>SHMT))
+    store[PAD(next)] = input[i];
+  }
+  barrier(CLK_LOCAL_MEM_FENCE);
+  for (int i = tidx; i < (width<<SHMT); i+=get_local_size(0)) {
+    input[i] = store[PAD(i)];
   }
 }
 

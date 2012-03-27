@@ -61,6 +61,20 @@ typedef Singleton<MarshalProg> MarshalProgSingleton;
 }
 
 #define NR_THREADS 256
+#define IS_POW2(x) (x && !(x &( x- 1)))
+//#define IS_POW2(x) 0
+// v: 32-bit word input to count zero bits on right
+static int count_zero_bits(unsigned int v) {
+  unsigned int c = 32; // c will be the number of zero bits on the right
+  v &= -signed(v);
+  if (v) c--;
+  if (v & 0x0000FFFF) c -= 16;
+  if (v & 0x00FF00FF) c -= 8;
+  if (v & 0x0F0F0F0F) c -= 4;
+  if (v & 0x33333333) c -= 2;
+  if (v & 0x55555555) c -= 1;
+  return c;
+}
 extern "C" bool cl_aos_asta_bs(cl_command_queue cl_queue,
     cl_mem src, int height, int width,
     int tile_size) {
@@ -76,14 +90,16 @@ extern "C" bool cl_aos_asta_bs(cl_command_queue cl_queue,
   MarshalProg *marshalprog = MarshalProgSingleton::Instance();
   marshalprog->Init(context());
 
-  cl::Kernel kernel(marshalprog->program, "BS_marshal");
+  cl::Kernel kernel(marshalprog->program, 
+      IS_POW2(tile_size) ? "BS_marshal_power2":"BS_marshal");
   if (CL_SUCCESS != kernel.setArg(0, buffer))
     return true;
-  cl_int err = kernel.setArg(1, tile_size);
+  cl_int err = kernel.setArg(1,
+      IS_POW2(tile_size)? count_zero_bits(tile_size) : tile_size);
   if (err != CL_SUCCESS)
     return true;
   err = kernel.setArg(2, width);
-  err |= kernel.setArg(3, width*tile_size*sizeof(cl_float), NULL);
+  err |= kernel.setArg(3, width*(tile_size+1)*sizeof(cl_float), NULL);
   if (err != CL_SUCCESS)
     return true;
   cl::NDRange global(height/tile_size*NR_THREADS), local(NR_THREADS);
