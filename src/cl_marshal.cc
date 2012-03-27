@@ -38,15 +38,27 @@ class MarshalProg {
     source_ = cl::Program::Sources(1,
       std::make_pair(source_code_.c_str(), source_code_.length()+1));
   }
-
+  cl_uint GetCtxRef(void) const {
+    cl_uint rc = 0;
+    if (context_) {
+      clGetContextInfo(context_,
+          CL_CONTEXT_REFERENCE_COUNT, sizeof(cl_uint), &rc, NULL);
+    }
+    return rc;
+  }
   bool Init(cl_context clcontext) {
     if (context_ != clcontext) { //Trigger recompilation
+      context_ = clcontext;
       cl::Context context(clcontext);
       clRetainContext(clcontext);
-      context_ = clcontext;
+      cl_uint old_ref = GetCtxRef();
       program = cl::Program(context, source_);
       if (CL_SUCCESS != program.build())
         return true;
+      // On Apple and ATI, build a program has an implied clRetainContext.
+      // To avoid leak, release the additional lock. Note: Not thread-safe
+      if (old_ref != GetCtxRef())
+        clReleaseContext(clcontext);
     }
     return false;
   }
