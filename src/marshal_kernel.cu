@@ -27,7 +27,7 @@
 // convert a[height/tile_size][tile_size][width] to
 // a[height/tile_size][width][tile_size]
 // Launch height/tile_size blocks of tile_size*width threads
-template <class T>
+template <class T, unsigned coarsen_factor>
 __global__ static void BS_marshal(T *input,
     int tile_size, int width, clock_t *timer) {
 //  clock_t time1 = clock();
@@ -35,10 +35,17 @@ __global__ static void BS_marshal(T *input,
   int bid = blockIdx.x;
   input += tile_size*width*bid;
   int tidy = threadIdx.y;
-  T tmp = input[tidy*width+tidx];
+  T tmp[coarsen_factor];
+  for (int i = 0; i < coarsen_factor; ++i) {
+    int ttidx = tidx + i * blockDim.x;
+    tmp[i] = input[tidy*width+ttidx];
+  }
   __syncthreads();
-  __threadfence();
-  input[tidx*tile_size+tidy] = tmp;
+  for (int i = 0; i < coarsen_factor; ++i) {
+    int ttidx = tidx + i * blockDim.x;
+    //input[ttidx*tile_size+tidy] = tmp[i];
+    input[tidy*width+ttidx] = tmp[i];
+  }
 }
 
 // limitations: height must be multiple of tile_size

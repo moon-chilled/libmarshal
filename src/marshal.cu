@@ -28,8 +28,10 @@ template <class T>
 bool gpu_aos_asta_bs_t(T *src, int height, int width,
     int tile_size, clock_t *timer) {
   assert ((height/tile_size)*tile_size == height);
-  dim3 threads (width, tile_size, 1);
-  BS_marshal<<<height/tile_size, threads>>>(src, tile_size, width, timer);
+  const int coarsen = 8;
+  dim3 threads (width/coarsen, tile_size, 1);
+  BS_marshal<T, coarsen> <<<height/tile_size, threads>>>
+    (src, tile_size, width, timer);
   cudaError_t err = cudaGetLastError();
   if (cudaSuccess != err) {
     std::cerr << cudaGetErrorString(err) << std::endl;
