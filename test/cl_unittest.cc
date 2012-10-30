@@ -209,3 +209,122 @@ TEST_F(libmarshal_cl_test, bug533) {
     free(dst_gpu);
   }
 }
+
+#include <map>
+#include <iostream>
+#include <sstream>
+//http://www.daniweb.com/software-development/c/code/237001/prime-factorization#
+class Factorize {
+ public:
+  typedef std::map<int, int> Factors;
+  Factorize(int n):n_(n) {
+    int d = 2;  
+    if(n < 2) return;
+    /* while the factor being tested
+     * is lower than the number to factorize */
+    while(d < n) {
+      /* valid prime factor */
+      if(n % d == 0) {
+	factors[d] += 1;
+	n /= d;
+      }
+      /* invalid prime factor */
+      else {
+	if(d == 2) d = 3;
+	else d += 2;
+      }
+    }
+    /* last prime factor */
+    factors[d] += 1;
+  }
+  const std::map<int, int> &get_factors() const {
+    return factors;
+  }
+  void tiling_options(void) {
+    tiling_options(std::string(""), factors.begin(), 1);
+  }
+  std::vector<int> &get_tile_sizes(void) { return tile_sizes_; }
+ private:
+  Factorize():n_(0) {}
+  void tiling_options(std::string s, Factors::const_iterator current, int t) {
+    if (current == factors.end()) {
+      if (t > 1) {
+	std::cout << s << ";" << t << "*"<< n_/t << "\n";
+        tile_sizes_.push_back(t);
+      }
+      return;
+    } else {
+      s += "*";
+    }
+    for (int i = 0; i<=current->second; i++) {
+      std::stringstream ss;
+      ss << current->first << "^" << i;
+      Factors::const_iterator inc = current;
+      ++inc;
+      if (i)
+	t*=current->first;
+      tiling_options(s+ss.str(), inc, t); 
+    }
+  }
+  const int n_;
+  Factors factors;
+  std::vector<int> tile_sizes_;
+
+};
+
+void tile(int x) {
+  Factorize f(x);
+  std::cout << "factors = ";
+  for (std::map<int, int>::const_iterator it = f.get_factors().begin(), e = f.get_factors().end();
+    it != e; it++) {
+    std::cout << it->first << "^" << it->second<<"*";
+  }
+  std::cout << "\n";
+  f.tiling_options();
+  std::cout << "\n";
+}
+
+TEST_F(libmarshal_cl_test, tiles) {
+  int ws[6] = {40, 62, 197, 215, 59, 39};
+  int hs[6] = {11948, 17281, 35588, 44609, 90449, 49152};
+  int w = ws[0];
+  int h = hs[0]; //(hs[0]+t-1)/t*t;
+
+  float *src = (float*)malloc(sizeof(float)*h*w);
+  float *dst = (float*)malloc(sizeof(float)*h*w);
+  float *dst_gpu = (float*)malloc(sizeof(float)*h*w);
+  generate_vector(src, h*w);
+
+  Factorize f(h);
+  f.tiling_options();
+  std::vector<int> options = f.get_tile_sizes();
+  for (int i = 0 ; i < options.size(); i++) {
+    int t = options[i];
+    std::cerr << " h = " << h << "; w= " << w << "; t = " << t <<"\n";
+    // [h/t][t][w] to [h/t][w][t] 
+    cl_int err;
+    cl::Buffer d_dst = cl::Buffer(*context_, CL_MEM_READ_WRITE,
+        sizeof(float)*h*w, NULL, &err);
+    ASSERT_EQ(err, CL_SUCCESS);
+    ASSERT_EQ(queue_->enqueueWriteBuffer(
+          d_dst, CL_TRUE, 0, sizeof(float)*h*w, src), CL_SUCCESS);
+    bool r = false;
+    r = cl_transpose((*queue_)(), d_dst(), h, w, t);
+    // This may fail
+    EXPECT_EQ(false, r);
+    if (r != false)
+      continue;
+    // compute golden
+    // [h/t][t][w] to [h/t][w][t]
+    cpu_aos_asta(src, dst, h, w, t);
+    // [h/t][w][t] to [h/t][t][w]
+    cpu_soa_asta(dst, src, w*t, h/t, t);
+    ASSERT_EQ(queue_->enqueueReadBuffer(d_dst, CL_TRUE, 0, sizeof(float)*h*w,
+          dst_gpu), CL_SUCCESS);
+    EXPECT_EQ(0, compare_output(dst_gpu, src, h*w));
+  }
+  free(src);
+  free(dst);
+  free(dst_gpu);
+}
+
