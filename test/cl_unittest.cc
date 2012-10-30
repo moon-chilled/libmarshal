@@ -94,7 +94,7 @@ void cpu_aos_asta(float *src, float *dst, int height, int width,
     }
   }
 }
-
+//[w][h/t][t] to [h/t][w][t] 
 void cpu_soa_asta(float *src, float *dst, int height, int width,
     int tile_size) {
   // We only support height == multiple of tile size

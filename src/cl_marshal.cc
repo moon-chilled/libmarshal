@@ -225,3 +225,15 @@ extern "C" bool cl_aos_asta(cl_command_queue queue, cl_mem src, int height,
   return cl_aos_asta_bs(queue, src, height, width, tile_size) &&
     cl_aos_asta_pttwac(queue, src, height, width, tile_size);
 }
+
+extern "C" bool cl_transpose(cl_command_queue queue, cl_mem src, int height,
+  int width, int tile_size) {
+  std::cerr << "cl_transpose: tile size = " << tile_size << "\n";
+  // Method 1: H >> W
+  // [H/T][T][W] to [H/T][W][T] then
+  // [H/T][W][T] to [W][H/T][T]
+  return cl_aos_asta(queue, src, height, width, tile_size) ||
+    cl_soa_asta_pttwac(queue, src, width*tile_size, height/tile_size, tile_size);
+  // Method 2: W >> H (TBD)
+  // Method 3: 
+}
