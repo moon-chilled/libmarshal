@@ -191,6 +191,7 @@ extern "C" bool cl_soa_asta_pttwac(cl_command_queue cl_queue,
     return true;
   err = queue.enqueueWriteBuffer(d_finished, CL_TRUE, 0,
       sizeof(cl_int)*height*width/tile_size, finished);
+  free(finished);
   if (err != CL_SUCCESS)
     return true;
   cl::Kernel kernel(marshalprog->program, "PTTWAC_marshal_soa");
