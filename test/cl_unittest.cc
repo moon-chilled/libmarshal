@@ -329,7 +329,7 @@ TEST_F(libmarshal_cl_test, tiles) {
 }
 
 // testing 0100 transformation AaBb->ABab
-TEST_F(libmarshal_cl_test, test_0100_shm) {
+TEST_F(libmarshal_cl_test, test_0100) {
   int bs[] = {32};
   int Bs[] = {57};
   int as[] = {62};

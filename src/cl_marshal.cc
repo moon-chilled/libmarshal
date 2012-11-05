@@ -93,9 +93,11 @@ static int count_zero_bits(unsigned int v) {
   if (v & 0x55555555) c -= 1;
   return c;
 }
-extern "C" bool cl_aos_asta_bs(cl_command_queue cl_queue,
-    cl_mem src, int height, int width,
-    int tile_size) {
+
+// Transformation 010, or AaB to ABa
+extern "C" bool cl_transpose_010_bs(cl_command_queue cl_queue,
+    cl_mem src, int A, int a,
+    int B) {
   // Standard preparation of invoking a kernel
   cl::CommandQueue queue = cl::CommandQueue(cl_queue);
   Profiling prof(queue, "AOS-ASTA BS");
@@ -108,30 +110,31 @@ extern "C" bool cl_aos_asta_bs(cl_command_queue cl_queue,
   marshalprog->Init(context());
 
   cl::Kernel kernel(marshalprog->program, 
-      IS_POW2(tile_size) ? "BS_marshal_power2":"BS_marshal");
+      IS_POW2(a) ? "BS_marshal_power2":"BS_marshal");
   if (CL_SUCCESS != kernel.setArg(0, buffer))
     return true;
   cl_int err = kernel.setArg(1,
-      IS_POW2(tile_size)? count_zero_bits(tile_size) : tile_size);
+      IS_POW2(a)? count_zero_bits(a) : a);
   if (err != CL_SUCCESS)
     return true;
-  err = kernel.setArg(2, width);
-  err |= kernel.setArg(3, width*(tile_size+1)*sizeof(cl_float), NULL);
+  err = kernel.setArg(2, B);
+  err |= kernel.setArg(3, B*(a+1)*sizeof(cl_float), NULL);
   if (err != CL_SUCCESS)
     return true;
-  cl::NDRange global(height/tile_size*NR_THREADS), local(NR_THREADS);
+  cl::NDRange global(A*NR_THREADS), local(NR_THREADS);
   err = queue.enqueueNDRangeKernel(kernel, cl::NullRange, global, local, NULL,
     prof.GetEvent());
   if (err != CL_SUCCESS)
     return true;
 #ifdef LIBMARSHAL_OCL_PROFILE
-  prof.Report(height*width*sizeof(float)*2);
+  prof.Report(A*a*B*sizeof(float)*2);
 #endif
   return false;
 }
 
-extern "C" bool cl_aos_asta_pttwac(cl_command_queue cl_queue,
-    cl_mem src, int height, int width, int tile_size) {
+// Transformation 010, or AaB to ABa
+extern "C" bool cl_transpose_010_pttwac(cl_command_queue cl_queue,
+    cl_mem src, int A, int a, int B) {
   // Standard preparation of invoking a kernel
   cl::CommandQueue queue = cl::CommandQueue(cl_queue);
   Profiling prof(queue, "AOS-ASTA PTTWAC");
@@ -143,33 +146,33 @@ extern "C" bool cl_aos_asta_pttwac(cl_command_queue cl_queue,
   MarshalProg *marshalprog = MarshalProgSingleton::Instance();
   marshalprog->Init(context());
 
-  assert ((height/tile_size)*tile_size == height);
   cl::Kernel kernel(marshalprog->program, "PTTWAC_marshal");
   if (CL_SUCCESS != kernel.setArg(0, buffer))
     return true;
-  cl_int err = kernel.setArg(1, tile_size);
+  cl_int err = kernel.setArg(1, a);
   if (err != CL_SUCCESS)
     return true;
-  err |= kernel.setArg(2, (height/tile_size));
-  err = kernel.setArg(3, width);
+  err |= kernel.setArg(2, A);
+  err = kernel.setArg(3, B);
   if (err != CL_SUCCESS)
     return true;
-  err = kernel.setArg(4, ((tile_size*width+15)/16)*sizeof(cl_uint), NULL);
+  err = kernel.setArg(4, ((a*B+15)/16)*sizeof(cl_uint), NULL);
   if (err != CL_SUCCESS)
     return true;
-  cl::NDRange global((height/tile_size+1)/2*NR_THREADS), local(NR_THREADS);
+  cl::NDRange global((A+1)/2*NR_THREADS), local(NR_THREADS);
   err = queue.enqueueNDRangeKernel(kernel, cl::NullRange, global, local, NULL,
     prof.GetEvent());
   if (err != CL_SUCCESS)
     return true;
 #ifdef LIBMARSHAL_OCL_PROFILE
-  prof.Report(height*width*sizeof(float)*2);
+  prof.Report(A*a*B*sizeof(float)*2);
 #endif
   return false;
 }
 
-extern "C" bool cl_soa_asta_pttwac(cl_command_queue cl_queue,
-    cl_mem src, int height, int width, int tile_size) {
+// Transformation 100, or ABb to BAb
+extern "C" bool cl_transpose_100(cl_command_queue cl_queue,
+    cl_mem src, int A, int B, int b) {
     // Standard preparation of invoking a kernel
   cl::CommandQueue queue = cl::CommandQueue(cl_queue);
   Profiling prof(queue, "SOA-ASTA PTTWAC");
@@ -181,49 +184,41 @@ extern "C" bool cl_soa_asta_pttwac(cl_command_queue cl_queue,
   MarshalProg *marshalprog = MarshalProgSingleton::Instance();
   marshalprog->Init(context());
 
-  assert ((height/tile_size)*tile_size == height);
-  cl_int *finished = (cl_int *)calloc(sizeof(cl_int),
-      height*width/tile_size);
+  cl_int *finished = (cl_int *)calloc(sizeof(cl_int), A*B);
   cl_int err;
   cl::Buffer d_finished = cl::Buffer(context, CL_MEM_READ_WRITE,
-      sizeof(cl_int)*height*width/tile_size, NULL, &err);
+      sizeof(cl_int)*A*B, NULL, &err);
   if (err != CL_SUCCESS)
     return true;
   err = queue.enqueueWriteBuffer(d_finished, CL_TRUE, 0,
-      sizeof(cl_int)*height*width/tile_size, finished);
+      sizeof(cl_int)*A*B, finished);
   free(finished);
   if (err != CL_SUCCESS)
     return true;
-  cl::Kernel kernel(marshalprog->program, "PTTWAC_marshal_soa");
+  cl::Kernel kernel(marshalprog->program, "transpose_100");
   if (CL_SUCCESS != kernel.setArg(0, buffer))
     return true;
-  err = kernel.setArg(1, height);
+  err = kernel.setArg(1, A);
   if (err != CL_SUCCESS)
     return true;
-  err = kernel.setArg(2, tile_size);
+  err = kernel.setArg(2, B);
   if (err != CL_SUCCESS)
     return true;
-  err = kernel.setArg(3, width);
+  err = kernel.setArg(3, b);
   if (err != CL_SUCCESS)
     return true;
   err = kernel.setArg(4, d_finished);
   if (err != CL_SUCCESS)
     return true;
-  cl::NDRange global(std::min(height*width, tile_size*1024)), local(tile_size);
+  cl::NDRange global(std::min(A*B*b, b*1024)), local(b);
   err = queue.enqueueNDRangeKernel(kernel, cl::NullRange, global, local,
     NULL, prof.GetEvent());
   if (err != CL_SUCCESS)
     return true;
 #ifdef LIBMARSHAL_OCL_PROFILE
-  prof.Report(height*width*sizeof(float)*2);
+  prof.Report(A*B*b*sizeof(float)*2);
 #endif
   return false;
-}
-
-extern "C" bool cl_aos_asta(cl_command_queue queue, cl_mem src, int height,
-  int width, int tile_size) {
-  return cl_aos_asta_bs(queue, src, height, width, tile_size) &&
-    cl_aos_asta_pttwac(queue, src, height, width, tile_size);
 }
 
 extern "C" bool cl_transpose(cl_command_queue queue, cl_mem src, int height,
@@ -252,7 +247,7 @@ extern "C" bool cl_transpose_0100(cl_command_queue cl_queue, cl_mem src,
   MarshalProg *marshalprog = MarshalProgSingleton::Instance();
   marshalprog->Init(context());
 
-  cl::Kernel kernel(marshalprog->program, "transpose_0100_PTTWAC");
+  cl::Kernel kernel(marshalprog->program, "transpose_0100");
   if (CL_SUCCESS != kernel.setArg(0, buffer))
     return true;
   cl_int err = kernel.setArg(1, A);
@@ -284,11 +279,9 @@ extern "C" bool cl_transpose_0100(cl_command_queue cl_queue, cl_mem src,
   err = kernel.setArg(5, d_finished);
   if (err != CL_SUCCESS)
     return true;
-#endif
-#if 1 //PIPT
-  cl::NDRange global(a*B*b, 1024/b), local(b, 1024/b);
-#else //PTTWAC
   cl::NDRange global(a*B*b, A), local(b, A);
+#else //PIPT
+  cl::NDRange global(a*B*b, 1024/b), local(b, 1024/b);
 #endif
   err = queue.enqueueNDRangeKernel(kernel, cl::NullRange, global, local, NULL,
     prof.GetEvent());
@@ -299,3 +292,37 @@ extern "C" bool cl_transpose_0100(cl_command_queue cl_queue, cl_mem src,
 #endif
   return false;
 }
+
+
+// Wrappers for old API compatibility
+// Transformation 010, or AaB to ABa
+extern "C" bool cl_aos_asta_bs(cl_command_queue cl_queue,
+    cl_mem src, int height, int width,
+    int tile_size) {
+  return cl_transpose_010_bs(cl_queue, src,
+    height/tile_size /*A*/,
+    tile_size /*a*/,
+    width /*B*/);
+}
+
+extern "C" bool cl_soa_asta_pttwac(cl_command_queue cl_queue,
+    cl_mem src, int height, int width, int tile_size) {
+  assert ((height/tile_size)*tile_size == height);
+  return cl_transpose_100(cl_queue, src, width /*A*/,
+    height/tile_size /*B*/, tile_size/*b*/);
+}
+// Transformation 010, or AaB to ABa
+extern "C" bool cl_aos_asta_pttwac(cl_command_queue cl_queue,
+    cl_mem src, int height, int width, int tile_size) {
+  assert ((height/tile_size)*tile_size == height);
+  return cl_transpose_010_pttwac(cl_queue, src, height/tile_size/*A*/, 
+    tile_size /*a*/,
+    width /*B*/);
+}
+
+extern "C" bool cl_aos_asta(cl_command_queue queue, cl_mem src, int height,
+  int width, int tile_size) {
+  return cl_aos_asta_bs(queue, src, height, width, tile_size) &&
+    cl_aos_asta_pttwac(queue, src, height, width, tile_size);
+}
+

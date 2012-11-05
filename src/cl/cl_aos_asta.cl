@@ -112,54 +112,51 @@ __kernel void PTTWAC_marshal(__global float *input, int tile_size,
   }
 }
 
-// limitations: tile_size cannot exceed # of allowed threads in the system
-// convert a[width][height/tile_size][tile_size] to
-// a[height/tile_size][width][tile_size]
-// Launch width*height/tile_size blocks of tile_size threads
-__kernel void PTTWAC_marshal_soa(__global float *input, 
-    int height, int tile_size,
-    int width, __global int *finished) {
-  height/=tile_size;
-  int m = (height*width)-1;
+// Transformation 100, or ABb to BAb
+// limitations: b cannot exceed # of allowed threads in the system
+// Launch A*B work-groups of b work-items
+__kernel void transpose_100(__global float *input, 
+    int A, int B, int b, __global int *finished) {
+  int m = A*B-1;
   int tid = get_local_id(0);
   float data;
   for(int gid = get_group_id(0); gid < m; gid += get_num_groups(0)) {
-    int next_in_cycle = (gid * width)-m*(gid/height);
+    int next_in_cycle = (gid * A)-m*(gid/B);
     if (next_in_cycle == gid)
       continue;
-#define P_IPT 1
+#define P_IPT 0
 #if P_IPT
     for (;next_in_cycle > gid;
-      next_in_cycle = (next_in_cycle*width)-m*(next_in_cycle/height))
+      next_in_cycle = (next_in_cycle*A)-m*(next_in_cycle/B))
       ;
     if (next_in_cycle !=gid)
       continue;
-    data = input[gid*tile_size+tid];
-    for (next_in_cycle = (gid * width)-m*(gid/height);
+    data = input[gid*b+tid];
+    for (next_in_cycle = (gid * A)-m*(gid/B);
       next_in_cycle > gid;
-      next_in_cycle = (next_in_cycle*width)-m*(next_in_cycle/height)) {
-      float backup = input[next_in_cycle*tile_size+tid];
-      input[next_in_cycle*tile_size+tid] = data;
+      next_in_cycle = (next_in_cycle*A)-m*(next_in_cycle/B)) {
+      float backup = input[next_in_cycle*b+tid];
+      input[next_in_cycle*b+tid] = data;
       data = backup;
     }
-    input[gid*tile_size+tid] = data;
+    input[gid*b+tid] = data;
 #else
     __local int done;
-    data = input[gid*tile_size+tid];
+    data = input[gid*b+tid];
     barrier(CLK_LOCAL_MEM_FENCE|CLK_GLOBAL_MEM_FENCE);
     if (tid == 0)
       done = atom_or(finished+gid, (int)0); //make sure the read is not cached 
     barrier(CLK_LOCAL_MEM_FENCE|CLK_GLOBAL_MEM_FENCE);
 
-    for (;done == 0; next_in_cycle = (next_in_cycle*width)-m*(next_in_cycle/height)) {
-      float backup = input[next_in_cycle*tile_size+tid];
+    for (;done == 0; next_in_cycle = (next_in_cycle*A)-m*(next_in_cycle/B)) {
+      float backup = input[next_in_cycle*b+tid];
       barrier(CLK_LOCAL_MEM_FENCE|CLK_GLOBAL_MEM_FENCE);
       if (tid == 0) {
         done = atom_xchg(finished+next_in_cycle, (int)1);
       }
       barrier(CLK_LOCAL_MEM_FENCE|CLK_GLOBAL_MEM_FENCE);
       if (!done) {
-        input[next_in_cycle*tile_size+tid] = data;
+        input[next_in_cycle*b+tid] = data;
       }
       data = backup;
     }
@@ -174,7 +171,7 @@ __kernel void PTTWAC_marshal_soa(__global float *input,
 // when moving, N instances of elements of b is moved
 // When A == 1 this is equivalent to SoA-ASTA transformation
 #define P_IPT 1
-__kernel void transpose_0100_PTTWAC(
+__kernel void transpose_0100(
   __global float *input, int A, int a, int B, int b
 #if P_IPT
   ) {
