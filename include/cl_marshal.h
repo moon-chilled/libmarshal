@@ -32,6 +32,9 @@ bool cl_aos_asta(cl_command_queue queue,
     cl_mem src, int height, int width, int tile_size);
 bool cl_transpose(cl_command_queue queue,
     cl_mem src, int height, int width, int tile_size);
+/// Transformation 0100, or AaBb to ABab
+bool cl_transpose_0100(cl_command_queue queue, cl_mem src,
+  int A, int a, int B, int b);
 }
 
 #endif // _LIBMARSHAL_INCLUDE_MARSHAL_H_

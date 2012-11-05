@@ -328,3 +328,43 @@ TEST_F(libmarshal_cl_test, tiles) {
   free(dst_gpu);
 }
 
+// testing 0100 transformation AaBb->ABab
+TEST_F(libmarshal_cl_test, test_0100_shm) {
+  int bs[] = {32};
+  int Bs[] = {57};
+  int as[] = {62};
+  int As[] = {128};
+  int b = bs[0];
+  int B = Bs[0];
+  int a = as[0];
+  int A = As[0];
+  size_t size = A*a*B*b;
+
+  float *src = (float*)malloc(sizeof(float)*size);
+  float *dst = (float*)malloc(sizeof(float)*size);
+  float *dst_gpu = (float*)malloc(sizeof(float)*size);
+  generate_vector(src, size);
+
+  cl_int err;
+  cl::Buffer d_dst = cl::Buffer(*context_, CL_MEM_READ_WRITE,
+      sizeof(float)*size, NULL, &err);
+  ASSERT_EQ(err, CL_SUCCESS);
+  ASSERT_EQ(queue_->enqueueWriteBuffer(
+        d_dst, CL_TRUE, 0, sizeof(float)*size, src), CL_SUCCESS);
+  bool r = false;
+  r = cl_transpose_0100((*queue_)(), d_dst(), A, a, B, b);
+  // This may fail
+  EXPECT_EQ(false, r);
+  // compute golden: A instances of aBb->Bab transformation
+  for (int i = 0; i < A; i++) {
+    cpu_soa_asta(src+i*(a*B*b),
+      dst+i*(a*B*b), B*b /*h*/, a /*w*/, b /*t*/);
+  }
+  ASSERT_EQ(queue_->enqueueReadBuffer(d_dst, CL_TRUE, 0,
+    sizeof(float)*size, dst_gpu), CL_SUCCESS);
+  EXPECT_EQ(0, compare_output(dst_gpu, dst, size));
+  free(src);
+  free(dst);
+  free(dst_gpu);
+}
+
