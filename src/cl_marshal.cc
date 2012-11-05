@@ -237,3 +237,65 @@ extern "C" bool cl_transpose(cl_command_queue queue, cl_mem src, int height,
   // Method 2: W >> H (TBD)
   // Method 3: 
 }
+
+// Transformation 0100, or AaBb to ABab
+extern "C" bool cl_transpose_0100(cl_command_queue cl_queue, cl_mem src,
+  int A, int a, int B, int b) {
+  // Standard preparation of invoking a kernel
+  cl::CommandQueue queue = cl::CommandQueue(cl_queue);
+  Profiling prof(queue, "Transpostion 0100 (PTTWAC)");
+  cl::Buffer buffer = cl::Buffer(src);
+  clRetainMemObject(src);
+  cl::Context context;
+  if(buffer.getInfo(CL_MEM_CONTEXT, &context) != CL_SUCCESS)
+    return true;
+  MarshalProg *marshalprog = MarshalProgSingleton::Instance();
+  marshalprog->Init(context());
+
+  cl::Kernel kernel(marshalprog->program, "transpose_0100_PTTWAC");
+  if (CL_SUCCESS != kernel.setArg(0, buffer))
+    return true;
+  cl_int err = kernel.setArg(1, A);
+  if (err != CL_SUCCESS)
+    return true;
+  err = kernel.setArg(2, a);
+  if (err != CL_SUCCESS)
+    return true;
+  err = kernel.setArg(3, B);
+  if (err != CL_SUCCESS)
+    return true;
+  err = kernel.setArg(4, b);
+  if (err != CL_SUCCESS)
+    return true;
+#if 0 //PTTWAC
+  cl::Buffer d_finished = cl::Buffer(context, CL_MEM_READ_WRITE,
+      sizeof(cl_int)*a*B, NULL, &err);
+  {
+    cl_int *finished = (cl_int *)calloc(sizeof(cl_int),
+        a*B);
+    cl_int err;
+    if (err != CL_SUCCESS)
+      return true;
+    err = queue.enqueueWriteBuffer(d_finished, CL_TRUE, 0,
+        sizeof(cl_int)*a*B, finished);
+    free(finished);
+  }
+
+  err = kernel.setArg(5, d_finished);
+  if (err != CL_SUCCESS)
+    return true;
+#endif
+#if 1 //PIPT
+  cl::NDRange global(a*B*b, 1024/b), local(b, 1024/b);
+#else //PTTWAC
+  cl::NDRange global(a*B*b, A), local(b, A);
+#endif
+  err = queue.enqueueNDRangeKernel(kernel, cl::NullRange, global, local, NULL,
+    prof.GetEvent());
+  if (err != CL_SUCCESS)
+    return true;
+#ifdef LIBMARSHAL_OCL_PROFILE
+  prof.Report(A*a*B*b*sizeof(float)*2);
+#endif
+  return false;
+}

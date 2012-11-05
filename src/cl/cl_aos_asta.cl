@@ -164,6 +164,70 @@ __kernel void PTTWAC_marshal_soa(__global float *input,
       data = backup;
     }
 #endif
+#undef P_IPT
+  }
+}
+
+// Transformation 0100, or AaBb to ABab
+// There are aB workgroups of N*b workitems.
+// Each workgroup moves a cycle as in SoA-ASTA transformation
+// when moving, N instances of elements of b is moved
+// When A == 1 this is equivalent to SoA-ASTA transformation
+#define P_IPT 1
+__kernel void transpose_0100_PTTWAC(
+  __global float *input, int A, int a, int B, int b
+#if P_IPT
+  ) {
+#else
+  ,__global uint *finished) {
+#endif
+  int m = (a*B)-1;
+  int tid = get_local_id(0);
+  float data;
+  for(int gid = get_group_id(0); gid < m; gid += get_num_groups(0)) {
+    int next_in_cycle = (gid * a)-m*(gid/B);
+    if (next_in_cycle == gid)
+      continue;
+#if P_IPT
+    for (;next_in_cycle > gid;
+      next_in_cycle = (next_in_cycle * a)-m*(next_in_cycle/B))
+      ;
+    if (next_in_cycle !=gid)
+      continue;
+    for (int i = get_local_id(1); i < A; i += get_local_size(1)) {
+      data = input[i*a*B*b+gid*b+tid];
+      for (next_in_cycle = (gid * a)-m*(gid/B);
+          next_in_cycle > gid;
+          next_in_cycle = (next_in_cycle*a)-m*(next_in_cycle/B)) {
+      float backup = input[i*a*B*b+next_in_cycle*b+tid];
+      input[i*a*B*b+next_in_cycle*b+tid] = data;
+      data = backup;
+      }
+      input[i*a*B*b+gid*b+tid] = data;
+    }
+#else
+    // Works only when A*b < Max # of work-items allowed in a workgroup
+    __local int done;
+    data = input[get_local_id(1)*a*B*b+gid*b+tid];
+    barrier(CLK_LOCAL_MEM_FENCE|CLK_GLOBAL_MEM_FENCE);
+    if (get_local_id(1) == 0 && tid == 0)
+      done = atom_or(finished+gid, (int)0); //make sure the read is not cached 
+    barrier(CLK_LOCAL_MEM_FENCE|CLK_GLOBAL_MEM_FENCE);
+
+    for (;done == 0; next_in_cycle = (next_in_cycle*a)-m*(next_in_cycle/B)) {
+      float backup;
+      backup = input[get_local_id(1)*a*B*b+next_in_cycle*b+tid];
+      barrier(CLK_LOCAL_MEM_FENCE|CLK_GLOBAL_MEM_FENCE);
+      if (get_local_id(1) == 0 && tid == 0) {
+        done = atom_xchg(finished+next_in_cycle, (int)1);
+      }
+      barrier(CLK_LOCAL_MEM_FENCE|CLK_GLOBAL_MEM_FENCE);
+      if (!done) {
+        input[get_local_id(1)*a*B*b + next_in_cycle*b+tid] = data;
+      }
+      data = backup;
+    }
+#endif
   }
 }
 
