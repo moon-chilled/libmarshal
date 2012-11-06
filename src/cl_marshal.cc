@@ -26,6 +26,7 @@
 #include "local_cl.hpp"
 #include "embd.hpp"
 #include "singleton.hpp"
+#include "plan.hpp"
 namespace {
 class MarshalProg {
  public:
@@ -221,16 +222,50 @@ extern "C" bool cl_transpose_100(cl_command_queue cl_queue,
   return false;
 }
 
-extern "C" bool cl_transpose(cl_command_queue queue, cl_mem src, int height,
-  int width, int tile_size) {
-  std::cerr << "cl_transpose: tile size = " << tile_size << "\n";
-  // Method 1: H >> W
-  // [H/T][T][W] to [H/T][W][T] then
-  // [H/T][W][T] to [W][H/T][T]
-  return cl_aos_asta(queue, src, height, width, tile_size) ||
-    cl_soa_asta_pttwac(queue, src, width*tile_size, height/tile_size, tile_size);
-  // Method 2: W >> H (TBD)
-  // Method 3: 
+extern "C" bool cl_transpose(cl_command_queue queue, cl_mem src, int A, int a,
+  int B, int b) {
+  {
+    // Method 1: Aa >> Bb
+    T010_BS step1(a, B*b); // Aa(Bb) to A(Bb)a
+    T010_PTTWAC step1p(a, B*b); // Aa(Bb) to A(Bb)a
+    T0100_PTTWAC step2(1, A, B*b, a); //1A(Bb)a to 1(Bb)Aa
+    if ((step1.IsFeasible()||step1p.IsFeasible()) &&
+         step2.IsFeasible()) {
+#ifdef LIBMARSHAL_OCL_PROFILE
+      std::cerr << "cl_transpose: method 1\n";
+#endif
+      bool r1;
+      if (step1.IsFeasible())
+        r1 = cl_transpose_010_bs(queue, src, A, a, B*b);
+      else
+        r1 = cl_transpose_010_pttwac(queue, src, A, a, B*b);
+      if (r1)
+        std::cerr << "cl_transpose: step 1 failed\n";
+      return r1 || cl_transpose_100(queue, src, A, B*b, a);
+    }
+  }
+  {
+    // Method 2: a < 1024
+    // AaBb to BAab (step 1)
+    // to BAba (step 2)
+    // to BbAa (step 3)
+    T0100_PTTWAC step1(1, A*a, B, b);
+    T010_PTTWAC step2(a, b);
+    T0100_PTTWAC step3(B, A, b, a);
+    if (step1.IsFeasible() && step2.IsFeasible() && step3.IsFeasible()) {
+#ifdef LIBMARSHAL_OCL_PROFILE
+      std::cerr << "cl_transpose: method 2\n";
+#endif
+      return cl_transpose_100(queue, src, A*a, B, b) ||
+        cl_transpose_010_pttwac(queue, src, B*A, a, b) ||
+        cl_transpose_0100(queue, src, B, A, b, a);
+    }
+  }
+  // fallback
+#ifdef LIBMARSHAL_OCL_PROFILE
+  std::cerr << "cl_transpose: fallback\n";
+#endif
+  return cl_transpose_0100(queue, src, 1, A*a, B*b, 1);
 }
 
 // Transformation 0100, or AaBb to ABab
