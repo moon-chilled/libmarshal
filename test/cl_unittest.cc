@@ -5,6 +5,7 @@
 #include <vector>
 #include <math.h>
 #include "cl_marshal.h"
+#include "plan.hpp"
 namespace {
 class libmarshal_cl_test : public ::testing::Test {
  public:
@@ -368,3 +369,8 @@ TEST_F(libmarshal_cl_test, test_0100) {
   free(dst_gpu);
 }
 
+TEST(libmarshal_plan_test, cycle) {
+  Transposition tx(2,3), tx2(3,5);
+  EXPECT_EQ(1, tx.GetNumCycles());
+  EXPECT_EQ(2, tx2.GetNumCycles());
+}
