@@ -224,11 +224,16 @@ extern "C" bool cl_transpose_100(cl_command_queue cl_queue,
 
 extern "C" bool cl_transpose(cl_command_queue queue, cl_mem src, int A, int a,
   int B, int b) {
+  cl::Buffer buffer = cl::Buffer(src);
+  clRetainMemObject(src);
+  cl::Context context;
+  if(buffer.getInfo(CL_MEM_CONTEXT, &context) != CL_SUCCESS)
+    return true;
   {
     // Method 1: Aa >> Bb
-    T010_BS step1(a, B*b); // Aa(Bb) to A(Bb)a
-    T010_PTTWAC step1p(a, B*b); // Aa(Bb) to A(Bb)a
-    T0100_PTTWAC step2(1, A, B*b, a); //1A(Bb)a to 1(Bb)Aa
+    T010_BS step1(a, B*b, context()); // Aa(Bb) to A(Bb)a
+    T010_PTTWAC step1p(a, B*b, context()); // Aa(Bb) to A(Bb)a
+    T0100_PTTWAC step2(1, A, B*b, a, context()); //1A(Bb)a to 1(Bb)Aa
     if ((step1.IsFeasible()||step1p.IsFeasible()) &&
          step2.IsFeasible()) {
 #ifdef LIBMARSHAL_OCL_PROFILE
@@ -245,13 +250,13 @@ extern "C" bool cl_transpose(cl_command_queue queue, cl_mem src, int A, int a,
     }
   }
   {
-    // Method 2: a < 1024
+    // Method 2: a < MAX_THREADS 
     // AaBb to BAab (step 1)
     // to BAba (step 2)
     // to BbAa (step 3)
-    T0100_PTTWAC step1(1, A*a, B, b);
-    T010_PTTWAC step2(a, b);
-    T0100_PTTWAC step3(B, A, b, a);
+    T0100_PTTWAC step1(1, A*a, B, b, context());
+    T010_PTTWAC step2(a, b, context());
+    T0100_PTTWAC step3(B, A, b, a, context());
     if (step1.IsFeasible() && step2.IsFeasible() && step3.IsFeasible()) {
 #ifdef LIBMARSHAL_OCL_PROFILE
       std::cerr << "cl_transpose: method 2\n";
@@ -316,7 +321,9 @@ extern "C" bool cl_transpose_0100(cl_command_queue cl_queue, cl_mem src,
     return true;
   cl::NDRange global(a*B*b, A), local(b, A);
 #else //PIPT
-  cl::NDRange global(a*B*b, 1024/b), local(b, 1024/b);
+  GPUInfo info(context());
+  cl::NDRange global(a*B*b, info.GetMaxWorkItems()/b),
+                          local(b, info.GetMaxWorkItems()/b);
 #endif
   err = queue.enqueueNDRangeKernel(kernel, cl::NullRange, global, local, NULL,
     prof.GetEvent());

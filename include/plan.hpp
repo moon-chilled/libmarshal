@@ -1,11 +1,56 @@
 #ifndef PLAN_HPP_
 #define PLAN_HPP_
 #include <algorithm>
+
+class GPUInfo {
+ public:
+  GPUInfo(cl_context context=NULL):ctx_(context) {
+    bool successful = false;
+    if (context) {
+      size_t ctsize;
+      cl_int r;
+      r = clGetContextInfo(context, CL_CONTEXT_DEVICES, 0, 0, &ctsize);
+      if (r == CL_SUCCESS && ctsize/sizeof(cl_device_id*) == 1) {
+        cl_device_id *devices = (cl_device_id*)malloc(ctsize);
+        r = clGetContextInfo(context, CL_CONTEXT_DEVICES, ctsize, devices, 0);
+        if (r == CL_SUCCESS) {
+          cl_int r2;
+          r = clGetDeviceInfo(devices[0], CL_DEVICE_LOCAL_MEM_SIZE, 
+            sizeof(cl_ulong), &max_local_mem_, 0);
+          r2 = clGetDeviceInfo(devices[0], CL_DEVICE_MAX_WORK_GROUP_SIZE, 
+            sizeof(size_t), &max_work_items_, 0);
+          successful = ((r == CL_SUCCESS) && (r2 == CL_SUCCESS));
+        }
+        free(devices);
+      }
+    } 
+    if (!successful) {
+      max_work_items_ = 256;
+      max_local_mem_ = 16*1024; // mininum allowed in OpenCL
+    }
+#if 0
+    std::cerr << "GPUInfo: max work items = " << max_work_items_<<"\n";
+    std::cerr << "GPUInfo: max local mem = " << max_local_mem_<<"\n";
+#endif
+  }
+  size_t GetMaxWorkItems(void) const {
+    return max_work_items_;
+  }
+  cl_ulong GetMaxLocalMemSize(void) const {
+    return max_local_mem_;
+  }
+ private:
+  size_t max_work_items_;
+  cl_ulong max_local_mem_;
+  cl_context ctx_;
+};
+
 class Transposition {
  public:
   const int m, n; // M by N in row major. i.e. A[i,j]=i*N+j and i<M
-  Transposition(int mm, int nn): m(mm), n(nn), mn_(mm*nn-1),
-  nr_cycles_(-1), cache_line_(8) {}
+  Transposition(int mm, int nn, cl_context ctx=NULL):
+    m(mm), n(nn), mn_(mm*nn-1),
+    nr_cycles_(-1), cache_line_(8), gpu_info_(ctx) {}
   unsigned Next(unsigned i) const {
     return (i*m)-mn_* (i/n);
   }
@@ -42,13 +87,15 @@ class Transposition {
   const int cache_line_;
   int nr_cycles_;
   const int mn_;
+  GPUInfo gpu_info_;
   Transposition();
 };
 
 /// Barrier-synchnorization
 class T010_BS: public Transposition {
  public:
-  T010_BS(int m, int n): Transposition(m, n) {}
+  T010_BS(int m, int n, cl_context ctx=NULL):
+    Transposition(m, n, ctx) {}
   unsigned GetEstimatedGlobalMemOps(void) {
     return float(2*m*n)/cache_line_;
   }
@@ -59,14 +106,16 @@ class T010_BS: public Transposition {
     return 0;
   }
   bool IsFeasible(void) const {
-    return m*n < 32*1024/4;
+    /* a small fraction of local memory is not really usable */
+    return m*n < gpu_info_.GetMaxLocalMemSize()/4-128;
   }
 };
 
 /// local memory based PTTWAC for transpostion 010
 class T010_PTTWAC: public Transposition {
  public:
-  T010_PTTWAC(int m, int n): Transposition(m, n) {}
+  T010_PTTWAC(int m, int n, cl_context ctx=NULL):
+    Transposition(m, n, ctx) {}
   unsigned GetEstimatedGlobalMemOps(void) {
     unsigned(2*m*n);
     return 0;
@@ -78,7 +127,7 @@ class T010_PTTWAC: public Transposition {
     return m*n;
   }
   bool IsFeasible(void) const {
-    return (m*n/16) < (64*1024/4);
+    return (m*n/16) < (gpu_info_.GetMaxLocalMemSize()/4);
   }
 };
 
@@ -86,8 +135,8 @@ class T010_PTTWAC: public Transposition {
 // when A == 1 this is equivalent to transposition 100
 class T0100_PTTWAC: public Transposition {
  public:
-  T0100_PTTWAC(int A, int a, int B, int b):
-    Transposition(a, B), A_(A), a_(a), B_(B), b_(b) {}
+  T0100_PTTWAC(int A, int a, int B, int b, cl_context ctx):
+    Transposition(a, B, ctx), A_(A), a_(a), B_(B), b_(b) {}
   unsigned GetEstimatedGlobalMemOps(void) {
     return unsigned(2*A_*a_*B_*std::max(float(cache_line_)/b_, 1.0f));
   }
@@ -98,7 +147,7 @@ class T0100_PTTWAC: public Transposition {
     return 0;
   }
   bool IsFeasible(void) const {
-    return b_ < 256; // hardcoded for now
+    return b_ < gpu_info_.GetMaxWorkItems(); // hardcoded for now
   }
  private:
   int A_, a_, B_, b_;
