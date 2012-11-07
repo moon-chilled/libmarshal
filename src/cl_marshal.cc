@@ -157,10 +157,10 @@ extern "C" bool cl_transpose_010_pttwac(cl_command_queue cl_queue,
   err = kernel.setArg(3, B);
   if (err != CL_SUCCESS)
     return true;
-  err = kernel.setArg(4, ((a*B+15)/16)*sizeof(cl_uint), NULL);
+  err = kernel.setArg(4, ((a*B+31)/32)*sizeof(cl_uint), NULL);
   if (err != CL_SUCCESS)
     return true;
-  cl::NDRange global((A+1)/2*NR_THREADS), local(NR_THREADS);
+  cl::NDRange global(A*NR_THREADS), local(NR_THREADS);
   err = queue.enqueueNDRangeKernel(kernel, cl::NullRange, global, local, NULL,
     prof.GetEvent());
   if (err != CL_SUCCESS)

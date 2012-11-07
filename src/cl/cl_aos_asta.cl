@@ -73,12 +73,8 @@ __kernel void PTTWAC_marshal(__global float *input, int tile_size,
   int tidx = get_local_id(0);
   int m = tile_size*width - 1;
   int height = nr_block * get_local_size(0);
-  __global float *input1 = input + get_group_id(0)*2*tile_size*width;
-  __global float *input2 = input + (get_group_id(0)*2+1)*tile_size*width;
-  int do_second = true;
-  if ((get_group_id(0)*2)>=(nr_block-1))
-    do_second = false;
-  for (int id = tidx ; id < (tile_size * width + 15) / 16;
+  input += get_group_id(0)*tile_size*width;
+  for (int id = tidx ; id < (tile_size * width + 31) / 32;
       id += get_local_size(0)) {
     finished[id] = 0;
   }
@@ -86,27 +82,23 @@ __kernel void PTTWAC_marshal(__global float *input, int tile_size,
   for (;tidx < tile_size*width; tidx += get_local_size(0)) {
     int next = (tidx * tile_size)-m*(tidx/width);
     if (tidx != m && next != tidx) {
-      float data1 = input1[tidx];
-      float data3 = do_second?input2[tidx]:0.0f;
+      float data1 = input[tidx];
       unsigned int mask = (1 << (tidx % 32));
-#define SHFT 4
+#define SHFT 5
       unsigned int flag_id = tidx>>SHFT;
       uint done = atom_or(finished+flag_id, 0);
       done = (done & mask);
       for (; done == 0; next = (next * tile_size) - m*(next/width)) {
         
-        float data2 = input1[next];
-        float data4 = do_second?input2[next]:0.0f;
+        float data2 = input[next];
         mask = (1 << (next % 32));
         flag_id = next>>SHFT;
         done = atom_or(finished+flag_id, mask);
         done = (done & mask);
         if (done == 0) {
-          input1[next] = data1;
-          if(do_second) input2[next] = data3;
+          input[next] = data1;
         }
         data1 = data2;
-        data3 = data4;
       }
     }
   }
