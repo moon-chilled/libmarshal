@@ -74,14 +74,34 @@ __kernel void PTTWAC_marshal(__global float *input, int tile_size,
   int m = tile_size*width - 1;
   int height = nr_block * get_local_size(0);
   input += get_group_id(0)*tile_size*width;
+#define P_IPT 1
+#if !P_IPT
   for (int id = tidx ; id < (tile_size * width + 31) / 32;
       id += get_local_size(0)) {
     finished[id] = 0;
   }
-  barrier(CLK_LOCAL_MEM_FENCE|CLK_GLOBAL_MEM_FENCE);
-  for (;tidx < tile_size*width; tidx += get_local_size(0)) {
-    int next = (tidx * tile_size)-m*(tidx/width);
-    if (tidx != m && next != tidx) {
+  barrier(CLK_LOCAL_MEM_FENCE);
+#endif
+  for (;tidx < m; tidx += get_local_size(0)) {
+    int next = (mul24(tidx,tile_size))-m*(tidx/width);
+#if P_IPT
+    int prev = (mul24(tidx,width))-m*(tidx/tile_size);
+    if (next <= tidx || prev < tidx)
+      continue;
+    for (;next > tidx;next = (mul24(next,tile_size))-m*(next/width))
+      ;
+    if (next !=tidx)
+      continue;
+    float data = input[tidx];
+    for (next = (tidx * tile_size)-m*(tidx/width);next > tidx;
+        next = (next*tile_size)-m*(next/width)) {
+      float backup = input[next];
+      input[next] = data;
+      data = backup;
+    }
+    input[tidx] = data;
+#else
+    if (next != tidx) {
       float data1 = input[tidx];
       unsigned int mask = (1 << (tidx % 32));
 #define SHFT 5
@@ -101,6 +121,7 @@ __kernel void PTTWAC_marshal(__global float *input, int tile_size,
         data1 = data2;
       }
     }
+#endif
   }
 }
 
