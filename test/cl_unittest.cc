@@ -29,7 +29,30 @@ class libmarshal_cl_test : public ::testing::Test {
 
 void libmarshal_cl_test::SetUp(void) {
   cl_int err;
-  context_ = new cl::Context(CL_DEVICE_TYPE_GPU, NULL, NULL, NULL, &err);
+
+  std::vector<cl::Platform> platforms;
+  cl::Platform::get(&platforms);
+  if (platforms.size() == 0) {
+    std::cerr << "Platform size 0\n";
+    return;
+  }
+  int i = 0;
+  for (; i < platforms.size(); i++) {
+    std::vector<cl::Device> devices;
+    platforms[i].getDevices(CL_DEVICE_TYPE_GPU, &devices);
+    if (devices.size() == 0)
+      continue;
+    else
+      break;
+  }
+  if (i == platforms.size()) {
+    std::cerr << "None of the platforms have GPU\n";
+    return;
+  }
+  cl_context_properties properties[] = 
+  { CL_CONTEXT_PLATFORM, (cl_context_properties)(platforms[i])(), 0};
+
+  context_ = new cl::Context(CL_DEVICE_TYPE_GPU, properties, NULL, NULL, &err);
   queue_ = NULL;
   ASSERT_EQ(err, CL_SUCCESS);
   std::vector<cl::Device> devices = context_->getInfo<CL_CONTEXT_DEVICES>();
