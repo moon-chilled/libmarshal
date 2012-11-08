@@ -1,4 +1,5 @@
 import pyopencl as cl
+import pyopencl.array as cla
 import numpy as np
 import basic
 import transpose 
@@ -77,6 +78,20 @@ class Test010(TransposeTestCase):
       self.assertEqual((hdst.astype(np.float32) == hsrct).all(), True, 'Comparison failed')
       gbs = float(A*a*B*4*2)/t
       perf.append(gbs)
+
+class TestArray(TransposeTestCase):
+  def runTest(self):
+    A = 40 #64*100
+    a = 16
+    B = 37
+    b = 10
+    src = np.random.rand(A*a, B*b).astype(np.float32)
+    expected = src.transpose()
+    dsrc = cla.to_device(self.queue, src)
+    hdst = transpose.TransposeArrayInPlace(dsrc, a, b) 
+    self.assertEqual(hdst.shape[0], B*b, 'Dimension mismatch')
+    self.assertEqual(hdst.shape[1], A*a, 'Dimension mismatch')
+    self.assertEqual((hdst.get() == expected).all(), True, 'Comparison failed')
 
 if __name__ == '__main__':
   unittest.main()

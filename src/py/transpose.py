@@ -103,3 +103,7 @@ def FullTranspose(queue, buf, A, a, B, b):
     fallback = T0100(1, A*a, B*b, 1)
     fallback.Transpose(queue, buf)
     #print fallback.Throughput()
+
+# Operations on pyopencl.array.Array
+def TransposeArrayInPlace(arr, a=1, b=1):
+  pass
