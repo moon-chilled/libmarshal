@@ -18,7 +18,6 @@ def CreateFirstGPUContext():
 
 # Profiling version
 def Prof(func, queue, *args):
-  queue.set_property(cl.command_queue_properties.PROFILING_ENABLE, True)
   ev = func(queue, *args)
   ev.wait();
   prof1 = ev.get_profiling_info(cl.profiling_info.START)
@@ -28,7 +27,7 @@ def Prof(func, queue, *args):
 class TransposeTestCase(unittest.TestCase):
   def setUp(self):
     self.ctx = CreateFirstGPUContext()
-    self.queue = cl.CommandQueue(self.ctx)
+    self.queue = cl.CommandQueue(self.ctx, properties=cl.command_queue_properties.PROFILING_ENABLE)
   def NumpyTranspose0100(A, a, B, b):
     for AA in range(A):
       for aa in range(a):

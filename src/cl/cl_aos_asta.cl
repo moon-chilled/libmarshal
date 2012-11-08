@@ -17,7 +17,9 @@
 //  This file defines the OpenCL kernels of the libmarshal 
 //
 //===---------------------------------------------------------------------===//
-
+__kernel void mymemset (__global float *input) {
+  input[get_global_id(0)] = 0.0f;
+}
 
 #pragma OPENCL EXTENSION cl_khr_local_int32_base_atomics : enable
 #pragma OPENCL EXTENSION cl_khr_local_int32_extended_atomics : enable
@@ -74,7 +76,7 @@ __kernel void PTTWAC_marshal(__global float *input, int tile_size,
   int m = tile_size*width - 1;
   int height = nr_block * get_local_size(0);
   input += get_group_id(0)*tile_size*width;
-#define P_IPT 1
+#define P_IPT 0
 #if !P_IPT
   for (int id = tidx ; id < (tile_size * width + 31) / 32;
       id += get_local_size(0)) {
@@ -122,6 +124,7 @@ __kernel void PTTWAC_marshal(__global float *input, int tile_size,
       }
     }
 #endif
+#undef P_IPT
   }
 }
 
