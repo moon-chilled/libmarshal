@@ -106,4 +106,11 @@ def FullTranspose(queue, buf, A, a, B, b):
 
 # Operations on pyopencl.array.Array
 def TransposeArrayInPlace(arr, a=1, b=1):
-  pass
+  if (len(arr.shape) <> 2):
+    raise TypeError("only allows transposing 2D arrays")
+  if (arr.shape[0]%a <> 0 or arr.shape[1]%b <> 0):
+    raise TypeError("tile size must evenly divide array dimensions")
+  FullTranspose(arr.queue, arr.data, arr.shape[0]/a, a, arr.shape[1]/b, b)
+  new_strides = (arr.size/(arr.strides[0]/arr.strides[1])*arr.strides[1], arr.strides[1])
+  return arr._new_with_changes(data=arr.data,
+    shape=(arr.shape[1], arr.shape[0]), strides=new_strides)
