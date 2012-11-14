@@ -76,6 +76,9 @@ __kernel void PTTWAC_marshal(__global float *input, int tile_size,
   int m = tile_size*width - 1;
   int height = nr_block * get_local_size(0);
   input += get_group_id(0)*tile_size*width;
+
+  const int sh_sz = (tile_size * width + 31) / 32;
+
 #define P_IPT 0
 #if !P_IPT
   for (int id = tidx ; id < (tile_size * width + 31) / 32;
@@ -105,16 +108,20 @@ __kernel void PTTWAC_marshal(__global float *input, int tile_size,
 #else
     if (next != tidx) {
       float data1 = input[tidx];
-      unsigned int mask = (1 << (tidx % 32));
+      //unsigned int mask = (1 << (tidx % 32));
+      unsigned int mask = 1 << (tidx / sh_sz);
 #define SHFT 5
-      unsigned int flag_id = tidx>>SHFT;
+      //unsigned int flag_id = tidx>>SHFT;
+      unsigned int flag_id = tidx%sh_sz;
       uint done = atom_or(finished+flag_id, 0);
       done = (done & mask);
       for (; done == 0; next = (next * tile_size) - m*(next/width)) {
         
         float data2 = input[next];
-        mask = (1 << (next % 32));
-        flag_id = next>>SHFT;
+        //mask = (1 << (next % 32));
+        mask = 1 << (next / sh_sz);
+        //flag_id = next>>SHFT;
+        flag_id = next%sh_sz;
         done = atom_or(finished+flag_id, mask);
         done = (done & mask);
         if (done == 0) {
