@@ -211,7 +211,21 @@ extern "C" bool cl_transpose_100(cl_command_queue cl_queue,
   err = kernel.setArg(4, d_finished);
   if (err != CL_SUCCESS)
     return true;
-  cl::NDRange global(std::min(A*B*b, b*1024)), local(b);
+
+  // Shared memory tiling
+#define WARPS 6
+#define WARP_SIZE 32
+  err = kernel.setArg(5, b*WARPS*sizeof(cl_float), NULL);
+  if (err != CL_SUCCESS)
+    return true;
+  err = kernel.setArg(6, b*WARPS*sizeof(cl_float), NULL);
+  if (err != CL_SUCCESS)
+    return true;
+
+  //cl::NDRange global(std::min(A*B*b, b*1024)), local(b);
+  // Shared memory tiling
+  cl::NDRange global(std::min(A*B*WARP_SIZE*WARPS, 1024*WARP_SIZE*WARPS)), local(WARP_SIZE*WARPS);
+
   err = queue.enqueueNDRangeKernel(kernel, cl::NullRange, global, local,
     NULL, prof.GetEvent());
   if (err != CL_SUCCESS)

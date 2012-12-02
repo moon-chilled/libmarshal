@@ -108,10 +108,10 @@ __kernel void PTTWAC_marshal(__global float *input, int tile_size,
 #else
     if (next != tidx) {
       float data1 = input[tidx];
-      //unsigned int mask = (1 << (tidx % 32));
-      unsigned int mask = 1 << (tidx / sh_sz);
 #define SHFT 5
+      //unsigned int mask = (1 << (tidx % 32));
       //unsigned int flag_id = tidx>>SHFT;
+      unsigned int mask = 1 << (tidx / sh_sz);
       unsigned int flag_id = tidx%sh_sz;
       uint done = atom_or(finished+flag_id, 0);
       done = (done & mask);
@@ -119,8 +119,8 @@ __kernel void PTTWAC_marshal(__global float *input, int tile_size,
         
         float data2 = input[next];
         //mask = (1 << (next % 32));
-        mask = 1 << (next / sh_sz);
         //flag_id = next>>SHFT;
+        mask = 1 << (next / sh_sz);
         flag_id = next%sh_sz;
         done = atom_or(finished+flag_id, mask);
         done = (done & mask);
@@ -138,7 +138,7 @@ __kernel void PTTWAC_marshal(__global float *input, int tile_size,
 // Transformation 100, or ABb to BAb
 // limitations: b cannot exceed # of allowed threads in the system
 // Launch A*B work-groups of b work-items
-__kernel void transpose_100(__global float *input, 
+/*__kernel void transpose_100(__global float *input, 
     int A, int B, int b, __global int *finished) {
   int m = A*B-1;
   int tid = get_local_id(0);
@@ -186,7 +186,83 @@ __kernel void transpose_100(__global float *input,
 #endif
 #undef P_IPT
   }
+}*/
+// Transformation 100 - Shared memory tiling
+#define WARP_SIZE 32
+#define WARPS 6
+__kernel void transpose_100(__global float *input,
+    int A, int B, int b, __global int *finished, volatile __local float *data, volatile __local float *backup) {
+  int m = A*B-1;
+  int tid = get_local_id(0) & 31;
+  int group_id = get_group_id(0);
+  int warp_id = get_local_id(0) >> 5;
+  int warps_group = get_local_size(0) >> 5;
+
+if(tid < b){
+  for(int gid = group_id * warps_group + warp_id; gid < m; gid += get_num_groups(0) * warps_group) {
+    int next_in_cycle = (gid * A)-m*(gid/B);
+    if (next_in_cycle == gid)
+      continue;
+
+#define P_IPT 0
+#if P_IPT
+    for (;next_in_cycle > gid;
+      next_in_cycle = (next_in_cycle*A)-m*(next_in_cycle/B))
+      ;
+    if (next_in_cycle !=gid)
+      continue;
+    for(int i = tid; i < b; i += WARP_SIZE){
+      data[warp_id*b+i] = input[gid*b+i];
+    }
+    for (next_in_cycle = (gid * A)-m*(gid/B);
+      next_in_cycle > gid;
+      next_in_cycle = (next_in_cycle*A)-m*(next_in_cycle/B)) {
+      for(int i = tid; i < b; i += WARP_SIZE){
+        backup[warp_id*b+i] = input[next_in_cycle*b+i];
+      }
+      for(int i = tid; i < b; i += WARP_SIZE){
+        input[next_in_cycle*b+i] = data[warp_id*b+i];
+      }
+      for(int i = tid; i < b; i += WARP_SIZE){
+        data[warp_id*b+i] = backup[warp_id*b+i];
+      }
+    }
+    for(int i = tid; i < b; i += WARP_SIZE){
+      input[gid*b+i] = data[warp_id*b+i];
+    }
+
+#else
+    volatile __local int done[WARPS];
+
+    for(int i = tid; i < b; i += WARP_SIZE){
+      data[warp_id*b+i] = input[gid*b+i];
+    }
+    if (tid == 0){
+      done[warp_id] = atom_or(finished+gid, (int)0); //make sure the read is not cached 
+    }
+
+    for (;done[warp_id] == 0; next_in_cycle = (next_in_cycle*A)-m*(next_in_cycle/B)) {
+      for(int i = tid; i < b; i += WARP_SIZE){
+        backup[warp_id*b+i] = input[next_in_cycle*b+i];
+      }
+      if (tid == 0) {
+        done[warp_id] = atom_xchg(finished+next_in_cycle, (int)1);
+      }
+      if (!done[warp_id]) {
+        for(int i = tid; i < b; i += WARP_SIZE){
+          input[next_in_cycle*b+i] = data[warp_id*b+i];
+        }
+      }
+      for(int i = tid; i < b; i += WARP_SIZE){
+        data[warp_id*b+i] = backup[warp_id*b+i];
+      }
+    }
+#endif
+#undef P_IPT
+  }
 }
+}
+
 
 // Transformation 0100, or AaBb to ABab
 // There are aB workgroups of N*b workitems.
