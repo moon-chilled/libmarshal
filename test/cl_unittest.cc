@@ -196,13 +196,16 @@ TEST_F(libmarshal_cl_test, bug536) {
     cl_ulong et = 0;
     // Change N to something > 1 to compute average performance.
     const int N = 10;
-    for (int n = 0; n < N; n++) {
+    const int WARM_UP = 2;
+    for (int n = 0; n < N+WARM_UP; n++) {
+      if (n == WARM_UP)
+        et = 0;
       bool r = cl_transpose_010_pttwac((*queue_)(), d_dst(), h/t, t, w, &et);
       EXPECT_EQ(oldref, GetCtxRef());
       EXPECT_EQ(oldqref, GetQRef());
       ASSERT_EQ(false, r);
-      ASSERT_EQ(queue_->enqueueReadBuffer(d_dst, CL_TRUE, 0, sizeof(float)*h*w,
-            dst_gpu), CL_SUCCESS);
+      ASSERT_EQ(queue_->enqueueReadBuffer(d_dst, CL_TRUE, 0,
+        sizeof(float)*h*w, dst_gpu), CL_SUCCESS);
       if ((n%2) == 0) {
         cpu_aos_asta(src, dst, h, w, t);
         EXPECT_EQ(0, compare_output(dst_gpu, dst, h*w));
@@ -211,7 +214,8 @@ TEST_F(libmarshal_cl_test, bug536) {
         EXPECT_EQ(0, compare_output(dst_gpu, src, h*w));
       }
     }
-    std::cerr << "Performance = " << float(h*w*2*sizeof(float)*N) / et << " GB/s\n";
+    std::cerr << "Performance = " << float(h*w*2*sizeof(float)*N) / et;
+    std::cerr << " GB/s\n";
 
     free(src);
     free(dst);
