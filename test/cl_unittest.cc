@@ -185,7 +185,6 @@ TEST_F(libmarshal_cl_test, bug536) {
     float *dst = (float*)malloc(sizeof(float)*h*w);
     float *dst_gpu = (float*)malloc(sizeof(float)*h*w);
     generate_vector(src, h*w);
-    cpu_aos_asta(src, dst, h, w, t);
     cl_int err;
     cl::Buffer d_dst = cl::Buffer(*context_, CL_MEM_READ_WRITE,
         sizeof(float)*h*w, NULL, &err);
@@ -194,13 +193,26 @@ TEST_F(libmarshal_cl_test, bug536) {
           d_dst, CL_TRUE, 0, sizeof(float)*h*w, src), CL_SUCCESS);
     cl_uint oldref = GetCtxRef();
     cl_uint oldqref = GetQRef();
-    bool r = cl_aos_asta_pttwac((*queue_)(), d_dst(), h, w, t);
-    EXPECT_EQ(oldref, GetCtxRef());
-    EXPECT_EQ(oldqref, GetQRef());
-    ASSERT_EQ(false, r);
-    ASSERT_EQ(queue_->enqueueReadBuffer(d_dst, CL_TRUE, 0, sizeof(float)*h*w,
-          dst_gpu), CL_SUCCESS);
-    EXPECT_EQ(0, compare_output(dst_gpu, dst, h*w));
+    cl_ulong et = 0;
+    // Change N to something > 1 to compute average performance.
+    const int N = 10;
+    for (int n = 0; n < N; n++) {
+      bool r = cl_transpose_010_pttwac((*queue_)(), d_dst(), h/t, t, w, &et);
+      EXPECT_EQ(oldref, GetCtxRef());
+      EXPECT_EQ(oldqref, GetQRef());
+      ASSERT_EQ(false, r);
+      ASSERT_EQ(queue_->enqueueReadBuffer(d_dst, CL_TRUE, 0, sizeof(float)*h*w,
+            dst_gpu), CL_SUCCESS);
+      if ((n%2) == 0) {
+        cpu_aos_asta(src, dst, h, w, t);
+        EXPECT_EQ(0, compare_output(dst_gpu, dst, h*w));
+      } else {
+        cpu_aos_asta(dst, src, h, w, t);
+        EXPECT_EQ(0, compare_output(dst_gpu, src, h*w));
+      }
+    }
+    std::cerr << "Performance = " << float(h*w*2*sizeof(float)*N) / et << " GB/s\n";
+
     free(src);
     free(dst);
     free(dst_gpu);

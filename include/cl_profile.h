@@ -25,7 +25,7 @@ class Profiling {
         << profiling_status_<< ")"<<std::endl;
     }
   }
-  void Report(size_t amount_s) {
+  cl_ulong Report(void) {
     profiling_status_ |= queue_.finish();
     cl_ulong start_time, end_time;
     profiling_status_ |= clGetEventProfilingInfo(event_(),
@@ -33,18 +33,25 @@ class Profiling {
     profiling_status_ |= clGetEventProfilingInfo(event_(),
         CL_PROFILING_COMMAND_END, sizeof(cl_ulong), &end_time, NULL);
     if (profiling_status_ == CL_SUCCESS) {
-      std::cerr << "[Profile] " << id_ << " "<< end_time - start_time
+      return end_time - start_time;
+    } else {
+      std::cerr << "[Profile] " << id_ << " profiling failed: " <<
+        profiling_status_ << std::endl;
+      return 0;
+    }
+  }
+  void Report(size_t amount_s) {
+    cl_ulong elapsed_time = Report();
+    if (elapsed_time) {
+      std::cerr << "[Profile] " << id_ << " "<< elapsed_time
           << "ns"; 
       if (amount_s) {
         double amount = amount_s; 
-        double throughput = (amount)/(end_time-start_time);
+        double throughput = (amount)/(elapsed_time);
         std::cerr << "; " << throughput << " GB/s" << std::endl;
       } else {
         std::cerr << std::endl;
       }
-    } else {
-      std::cerr << "[Profile] " << id_ << " profiling failed: " <<
-        profiling_status_ << std::endl;
     }
   }
  private:

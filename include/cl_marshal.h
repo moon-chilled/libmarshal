@@ -36,7 +36,7 @@ bool cl_transpose(cl_command_queue queue,
 bool cl_transpose_010_bs(cl_command_queue cl_queue, cl_mem src,
   int A, int a, int B);
 bool cl_transpose_010_pttwac(cl_command_queue cl_queue, cl_mem src,
-  int A, int a, int B);
+  int A, int a, int B, cl_ulong *);
 // Transformation 100, or ABb to BAb
 bool cl_transpose_100(cl_command_queue cl_queue, cl_mem src,
   int A, int B, int b);

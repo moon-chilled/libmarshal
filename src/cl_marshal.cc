@@ -135,7 +135,7 @@ extern "C" bool cl_transpose_010_bs(cl_command_queue cl_queue,
 
 // Transformation 010, or AaB to ABa
 extern "C" bool cl_transpose_010_pttwac(cl_command_queue cl_queue,
-    cl_mem src, int A, int a, int B) {
+    cl_mem src, int A, int a, int B, cl_ulong *elapsed_time) {
   // Standard preparation of invoking a kernel
   cl::CommandQueue queue = cl::CommandQueue(cl_queue);
   Profiling prof(queue, "AOS-ASTA PTTWAC");
@@ -166,7 +166,10 @@ extern "C" bool cl_transpose_010_pttwac(cl_command_queue cl_queue,
   if (err != CL_SUCCESS)
     return true;
 #ifdef LIBMARSHAL_OCL_PROFILE
-  prof.Report(A*a*B*sizeof(float)*2);
+  if (elapsed_time) {
+    *elapsed_time += prof.Report();
+  }
+  // prof.Report(A*a*B*sizeof(float)*2);
 #endif
   return false;
 }
@@ -257,7 +260,7 @@ extern "C" bool cl_transpose(cl_command_queue queue, cl_mem src, int A, int a,
       if (step1.IsFeasible())
         r1 = cl_transpose_010_bs(queue, src, A, a, B*b);
       else
-        r1 = cl_transpose_010_pttwac(queue, src, A, a, B*b);
+        r1 = cl_transpose_010_pttwac(queue, src, A, a, B*b, NULL);
       if (r1)
         std::cerr << "cl_transpose: step 1 failed\n";
       return r1 || cl_transpose_100(queue, src, A, B*b, a);
@@ -276,7 +279,7 @@ extern "C" bool cl_transpose(cl_command_queue queue, cl_mem src, int A, int a,
       std::cerr << "cl_transpose: method 2\n";
 #endif
       return cl_transpose_100(queue, src, A*a, B, b) ||
-        cl_transpose_010_pttwac(queue, src, B*A, a, b) ||
+        cl_transpose_010_pttwac(queue, src, B*A, a, b, NULL) ||
         cl_transpose_0100(queue, src, B, A, b, a);
     }
   }
@@ -373,7 +376,8 @@ extern "C" bool cl_aos_asta_pttwac(cl_command_queue cl_queue,
   assert ((height/tile_size)*tile_size == height);
   return cl_transpose_010_pttwac(cl_queue, src, height/tile_size/*A*/, 
     tile_size /*a*/,
-    width /*B*/);
+    width /*B*/,
+    NULL);
 }
 
 extern "C" bool cl_aos_asta(cl_command_queue queue, cl_mem src, int height,
