@@ -11,6 +11,7 @@
 // See LICENSE.TXT for details.
 //
 // Author: I-Jui Sung (sung10@illinois.edu)
+// Contributor: Juan Gómez Luna (el1goluj@uco.es)
 //
 //===---------------------------------------------------------------------===//
 //

@@ -147,7 +147,6 @@ TEST_F(libmarshal_cl_test, bug537) {
     float *dst = (float*)malloc(sizeof(float)*h*w);
     float *dst_gpu = (float*)malloc(sizeof(float)*h*w);
     generate_vector(src, h*w);
-    cpu_soa_asta(src, dst, h, w, t);
     cl_int err;
     cl::Buffer d_dst = cl::Buffer(*context_, CL_MEM_READ_WRITE,
         sizeof(float)*h*w, NULL, &err);
@@ -156,15 +155,30 @@ TEST_F(libmarshal_cl_test, bug537) {
     ASSERT_EQ(queue_->enqueueWriteBuffer(
           d_dst, CL_TRUE, 0, sizeof(float)*h*w, src), CL_SUCCESS);
     cl_uint oldref = GetCtxRef();
-    bool r = cl_soa_asta_pttwac((*queue_)(), d_dst(), h, w, t);
-    EXPECT_EQ(oldref, GetCtxRef());
-    EXPECT_EQ(oldqref, GetQRef());
-    ASSERT_EQ(false, r);
-    ASSERT_EQ(queue_->enqueueReadBuffer(d_dst, CL_TRUE, 0, sizeof(float)*h*w,
-          dst_gpu), CL_SUCCESS);
-    EXPECT_EQ(0, compare_output(dst_gpu, dst, h*w));
+    const int N = 10;
+    const int WARM_UP = 2;
+    cl_ulong et = 0;
+    for (int n = 0; n < N+WARM_UP; n++) {
+      if (n == WARM_UP)
+        et = 0;
+      //    bool r = cl_soa_asta_pttwac((*queue_)(), d_dst(), h, w, t);
+      bool r = cl_transpose_100((*queue_)(), d_dst(), w, h/t, t, &et);
+      EXPECT_EQ(oldref, GetCtxRef());
+      EXPECT_EQ(oldqref, GetQRef());
+      ASSERT_EQ(false, r);
+      ASSERT_EQ(queue_->enqueueReadBuffer(d_dst, CL_TRUE, 0,
+            sizeof(float)*h*w, dst_gpu), CL_SUCCESS);
+      if ((n % 2) == 0) {
+        cpu_soa_asta(src, dst, h, w, t);
+        EXPECT_EQ(0, compare_output(dst_gpu, dst, h*w));
+      } else {
+        cpu_soa_asta(dst, src, h, w, t);
+        EXPECT_EQ(0, compare_output(dst_gpu, src, h*w));
+      }
+    }
     Transposition tx(w,h/t);
-
+    std::cerr << "Performance = " << float(2*h*w*sizeof(float)*N)/et;
+    std::cerr << "GB/s\n";
     std::cerr << "Num cycles:"<<tx.GetNumCycles()<< "; percentage = " <<
       (float)tx.GetNumCycles()/(float)(h*w/t)*100 << "\n";
     free(src);

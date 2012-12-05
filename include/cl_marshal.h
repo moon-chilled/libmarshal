@@ -26,8 +26,6 @@ bool cl_aos_asta_bs(cl_command_queue queue,
     cl_mem src, int height, int width, int tile_size);
 bool cl_aos_asta_pttwac(cl_command_queue queue, cl_mem src, int height,
     int width, int tile_size);
-bool cl_soa_asta_pttwac(cl_command_queue queue, cl_mem src, int height,
-    int width, int tile_size);
 bool cl_aos_asta(cl_command_queue queue,
     cl_mem src, int height, int width, int tile_size);
 bool cl_transpose(cl_command_queue queue,
@@ -39,7 +37,7 @@ bool cl_transpose_010_pttwac(cl_command_queue cl_queue, cl_mem src,
   int A, int a, int B, cl_ulong *);
 // Transformation 100, or ABb to BAb
 bool cl_transpose_100(cl_command_queue cl_queue, cl_mem src,
-  int A, int B, int b);
+  int A, int B, int b, cl_ulong *);
 /// Transformation 0100, or AaBb to ABab
 bool cl_transpose_0100(cl_command_queue queue, cl_mem src,
   int A, int a, int B, int b);
