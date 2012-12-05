@@ -195,45 +195,65 @@ TEST_F(libmarshal_cl_test, bug536) {
     int w = ws[i];
     int h = (hs[i]+t-1)/t*t;
 
-    float *src = (float*)malloc(sizeof(float)*h*w);
-    float *dst = (float*)malloc(sizeof(float)*h*w);
-    float *dst_gpu = (float*)malloc(sizeof(float)*h*w);
-    generate_vector(src, h*w);
-    cl_int err;
-    cl::Buffer d_dst = cl::Buffer(*context_, CL_MEM_READ_WRITE,
-        sizeof(float)*h*w, NULL, &err);
-    ASSERT_EQ(err, CL_SUCCESS);
-    ASSERT_EQ(queue_->enqueueWriteBuffer(
-          d_dst, CL_TRUE, 0, sizeof(float)*h*w, src), CL_SUCCESS);
-    cl_uint oldref = GetCtxRef();
-    cl_uint oldqref = GetQRef();
-    cl_ulong et = 0;
-    // Change N to something > 1 to compute average performance.
-    const int N = 10;
-    const int WARM_UP = 2;
-    for (int n = 0; n < N+WARM_UP; n++) {
-      if (n == WARM_UP)
-        et = 0;
-      bool r = cl_transpose_010_pttwac((*queue_)(), d_dst(), h/t, t, w, &et);
-      EXPECT_EQ(oldref, GetCtxRef());
-      EXPECT_EQ(oldqref, GetQRef());
-      ASSERT_EQ(false, r);
-      ASSERT_EQ(queue_->enqueueReadBuffer(d_dst, CL_TRUE, 0,
-        sizeof(float)*h*w, dst_gpu), CL_SUCCESS);
-      if ((n%2) == 0) {
-        cpu_aos_asta(src, dst, h, w, t);
-        EXPECT_EQ(0, compare_output(dst_gpu, dst, h*w));
-      } else {
-        cpu_aos_asta(dst, src, h, w, t);
-        EXPECT_EQ(0, compare_output(dst_gpu, src, h*w));
+#define MAX_MEM 12288
+#define P 1
+    bool r;
+    for(int S_f = 1; S_f <= 32; S_f *=2){ // (Use S_f <= 1 for testing IPT) - S_f = Spreading factor
+
+      int sh_sz2 = S_f * ((t*w+31)/32);
+      sh_sz2 += (sh_sz2 >> 5) * P;
+
+      printf("w=%d\tt=%d\tS_f=%d\t", w, t, S_f);
+      printf("P=%d\t%d\t%d\t", P, (int)(5-log2(S_f)), sh_sz2);
+
+      if(sh_sz2 > MAX_MEM) printf("\n");
+      else{
+        float *src = (float*)malloc(sizeof(float)*h*w);
+        float *dst = (float*)malloc(sizeof(float)*h*w);
+        float *dst_gpu = (float*)malloc(sizeof(float)*h*w);
+        generate_vector(src, h*w);
+        cl_int err;
+        cl::Buffer d_dst = cl::Buffer(*context_, CL_MEM_READ_WRITE,
+            sizeof(float)*h*w, NULL, &err);
+        ASSERT_EQ(err, CL_SUCCESS);
+        ASSERT_EQ(queue_->enqueueWriteBuffer(
+            d_dst, CL_TRUE, 0, sizeof(float)*h*w, src), CL_SUCCESS);
+        cl_uint oldref = GetCtxRef();
+        cl_uint oldqref = GetQRef();
+        cl_ulong et = 0;
+        // Change N to something > 1 to compute average performance.
+        const int N = 4;
+        const int WARM_UP = 2;
+        for (int n = 0; n < N+WARM_UP; n++) {
+          if (n == WARM_UP)
+            et = 0;
+          r = cl_transpose_010_pttwac((*queue_)(), d_dst(), h/t, t, w, &et, S_f);
+          EXPECT_EQ(oldref, GetCtxRef());
+          EXPECT_EQ(oldqref, GetQRef());
+          ASSERT_EQ(false, r);
+          ASSERT_EQ(queue_->enqueueReadBuffer(d_dst, CL_TRUE, 0,
+              sizeof(float)*h*w, dst_gpu), CL_SUCCESS);
+          if ((n%2) == 0) {
+            cpu_aos_asta(src, dst, h, w, t);
+            EXPECT_EQ(0, compare_output(dst_gpu, dst, h*w));
+          } else {
+            cpu_aos_asta(dst, src, h, w, t);
+            EXPECT_EQ(0, compare_output(dst_gpu, src, h*w));
+          }
+        }
+        std::cerr << "Performance = " << float(h*w*2*sizeof(float)*N) / et;
+        std::cerr << " GB/s\t";
+
+        Transposition tx(t,w);
+        std::cerr << "Num cycles:"<<tx.GetNumCycles()<< "; percentage = " <<
+          (float)tx.GetNumCycles()/(float)(w*t)*100 << "\n";
+        //printf("Num_cycles = %d\tpercentage = %f\n",tx.GetNumCycles(), (float)tx.GetNumCycles()/(float)(h*w/t)*100);
+
+        free(src);
+        free(dst);
+        free(dst_gpu);
       }
     }
-    std::cerr << "Performance = " << float(h*w*2*sizeof(float)*N) / et;
-    std::cerr << " GB/s\n";
-
-    free(src);
-    free(dst);
-    free(dst_gpu);
   }
 }
 
@@ -309,7 +329,8 @@ TEST_F(libmarshal_cl_test, tiles) {
       ASSERT_EQ(queue_->enqueueWriteBuffer(
             d_dst, CL_TRUE, 0, sizeof(float)*h*w, src), CL_SUCCESS);
       bool r = false;
-      r = cl_transpose((*queue_)(), d_dst(), A, a, B, b);
+      //r = cl_transpose((*queue_)(), d_dst(), A, a, B, b);
+      r = cl_transpose((*queue_)(), d_dst(), A, a, B, b, 1); // 1 = Spreading factor, change if needed - JGL
       // This may fail
       EXPECT_EQ(false, r);
       if (r != false)

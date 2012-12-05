@@ -27,6 +27,10 @@
 #include "embd.hpp"
 #include "singleton.hpp"
 #include "plan.hpp"
+//#include "cl_constants.h"
+#include <math.h>
+#include <stdio.h>
+
 namespace {
 class MarshalProg {
  public:
@@ -135,7 +139,7 @@ extern "C" bool cl_transpose_010_bs(cl_command_queue cl_queue,
 
 // Transformation 010, or AaB to ABa
 extern "C" bool cl_transpose_010_pttwac(cl_command_queue cl_queue,
-    cl_mem src, int A, int a, int B, cl_ulong *elapsed_time) {
+    cl_mem src, int A, int a, int B, cl_ulong *elapsed_time, int R) {
   // Standard preparation of invoking a kernel
   cl::CommandQueue queue = cl::CommandQueue(cl_queue);
   Profiling prof(queue, "AOS-ASTA PTTWAC");
@@ -157,9 +161,21 @@ extern "C" bool cl_transpose_010_pttwac(cl_command_queue cl_queue,
   err = kernel.setArg(3, B);
   if (err != CL_SUCCESS)
     return true;
-  err = kernel.setArg(4, ((a*B+31)/32)*sizeof(cl_uint), NULL);
+
+#define P 1
+  int sh_sz = R * ((a*B+31)/32);
+  sh_sz += (sh_sz >> 5) * P;
+  //err = kernel.setArg(4, ((a*B+31)/32)*sizeof(cl_uint), NULL);
+  err = kernel.setArg(4, sh_sz*sizeof(cl_uint), NULL);
   if (err != CL_SUCCESS)
     return true;
+  err = kernel.setArg(5, R);
+  if (err != CL_SUCCESS)
+    return true;
+  err = kernel.setArg(6, (int)(5 - log2(R)));
+  if (err != CL_SUCCESS)
+    return true;
+
   cl::NDRange global(A*NR_THREADS), local(NR_THREADS);
   err = queue.enqueueNDRangeKernel(kernel, cl::NullRange, global, local, NULL,
     prof.GetEvent());
@@ -244,7 +260,7 @@ extern "C" bool cl_transpose_100(cl_command_queue cl_queue,
 }
 
 extern "C" bool cl_transpose(cl_command_queue queue, cl_mem src, int A, int a,
-  int B, int b) {
+  int B, int b, int R) {
   cl::Buffer buffer = cl::Buffer(src);
   clRetainMemObject(src);
   cl::Context context;
@@ -264,7 +280,7 @@ extern "C" bool cl_transpose(cl_command_queue queue, cl_mem src, int A, int a,
       if (step1.IsFeasible())
         r1 = cl_transpose_010_bs(queue, src, A, a, B*b);
       else
-        r1 = cl_transpose_010_pttwac(queue, src, A, a, B*b, NULL);
+        r1 = cl_transpose_010_pttwac(queue, src, A, a, B*b, NULL, R);
       if (r1)
         std::cerr << "cl_transpose: step 1 failed\n";
       return r1 || cl_transpose_100(queue, src, A, B*b, a, NULL);
@@ -283,7 +299,7 @@ extern "C" bool cl_transpose(cl_command_queue queue, cl_mem src, int A, int a,
       std::cerr << "cl_transpose: method 2\n";
 #endif
       return cl_transpose_100(queue, src, A*a, B, b, NULL) ||
-        cl_transpose_010_pttwac(queue, src, B*A, a, b, NULL) ||
+        cl_transpose_010_pttwac(queue, src, B*A, a, b, NULL, R) ||
         cl_transpose_0100(queue, src, B, A, b, a);
     }
   }
@@ -370,17 +386,18 @@ extern "C" bool cl_aos_asta_bs(cl_command_queue cl_queue,
 
 // Transformation 010, or AaB to ABa
 extern "C" bool cl_aos_asta_pttwac(cl_command_queue cl_queue,
-    cl_mem src, int height, int width, int tile_size) {
+    cl_mem src, int height, int width, int tile_size, int R) {
   assert ((height/tile_size)*tile_size == height);
   return cl_transpose_010_pttwac(cl_queue, src, height/tile_size/*A*/, 
     tile_size /*a*/,
     width /*B*/,
-    NULL);
+    NULL,
+    R);
 }
 
 extern "C" bool cl_aos_asta(cl_command_queue queue, cl_mem src, int height,
-  int width, int tile_size) {
+  int width, int tile_size, int R) {
   return cl_aos_asta_bs(queue, src, height, width, tile_size) &&
-    cl_aos_asta_pttwac(queue, src, height, width, tile_size);
+    cl_aos_asta_pttwac(queue, src, height, width, tile_size, R);
 }
 
