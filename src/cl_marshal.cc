@@ -190,12 +190,13 @@ extern "C" bool cl_transpose_010_pttwac(cl_command_queue cl_queue,
   return false;
 }
 
-// Transformation 100, or ABb to BAb
-extern "C" bool cl_transpose_100(cl_command_queue cl_queue,
-    cl_mem src, int A, int B, int b, cl_ulong *elapsed_time) {
+// Generic transformation 0100, or AaBb to ABab. Used by both
+// transformation 100 and 0100.
+bool _cl_transpose_0100(cl_command_queue cl_queue,
+    cl_mem src, int A, int a, int B, int b, cl_ulong *elapsed_time) {
     // Standard preparation of invoking a kernel
   cl::CommandQueue queue = cl::CommandQueue(cl_queue);
-  Profiling prof(queue, "SOA-ASTA PTTWAC");
+  Profiling prof(queue, "Transpose 0100/100 PTTWAC");
   cl::Buffer buffer = cl::Buffer(src);
   clRetainMemObject(src);
   cl::Context context;
@@ -204,21 +205,23 @@ extern "C" bool cl_transpose_100(cl_command_queue cl_queue,
   MarshalProg *marshalprog = MarshalProgSingleton::Instance();
   marshalprog->Init(context());
 
-  cl_int *finished = (cl_int *)calloc(sizeof(cl_int), A*B);
+  cl_int *finished = (cl_int *)calloc(sizeof(cl_int), A*a*B);
   cl_int err;
   cl::Buffer d_finished = cl::Buffer(context, CL_MEM_READ_WRITE,
-      sizeof(cl_int)*A*B, NULL, &err);
+      sizeof(cl_int)*A*a*B, NULL, &err);
   if (err != CL_SUCCESS)
     return true;
   err = queue.enqueueWriteBuffer(d_finished, CL_TRUE, 0,
-      sizeof(cl_int)*A*B, finished);
+      sizeof(cl_int)*A*a*B, finished);
   free(finished);
   if (err != CL_SUCCESS)
     return true;
-  cl::Kernel kernel(marshalprog->program, "transpose_100");
-  if (CL_SUCCESS != kernel.setArg(0, buffer))
+  cl::Kernel kernel(marshalprog->program, 
+    A==1?"transpose_100":"transpose_0100");
+  err = kernel.setArg(0, buffer);
+  if (err != CL_SUCCESS)
     return true;
-  err = kernel.setArg(1, A);
+  err = kernel.setArg(1, a);
   if (err != CL_SUCCESS)
     return true;
   err = kernel.setArg(2, B);
@@ -243,8 +246,8 @@ extern "C" bool cl_transpose_100(cl_command_queue cl_queue,
 
   //cl::NDRange global(std::min(A*B*b, b*1024)), local(b);
   // Shared memory tiling
-  cl::NDRange global(std::min(A*B*WARP_SIZE, 1024*WARP_SIZE), WARPS),
-    local(WARP_SIZE, WARPS);
+  cl::NDRange global(std::min(a*B*WARP_SIZE, 1024*WARP_SIZE), WARPS, A),
+    local(WARP_SIZE, WARPS, 1);
 
   err = queue.enqueueNDRangeKernel(kernel, cl::NullRange, global, local,
     NULL, prof.GetEvent());
@@ -253,8 +256,9 @@ extern "C" bool cl_transpose_100(cl_command_queue cl_queue,
 #ifdef LIBMARSHAL_OCL_PROFILE
   if (elapsed_time) {
     *elapsed_time += prof.Report();
+  } else {
+    prof.Report(A*a*B*b*sizeof(float)*2);
   }
-  // prof.Report(A*B*b*sizeof(float)*2);
 #endif
   return false;
 }
@@ -310,66 +314,16 @@ extern "C" bool cl_transpose(cl_command_queue queue, cl_mem src, int A, int a,
   return cl_transpose_0100(queue, src, 1, A*a, B*b, 1);
 }
 
+// Transformation 100, or ABb to BAb
+extern "C" bool cl_transpose_100(cl_command_queue cl_queue,
+    cl_mem src, int A, int B, int b, cl_ulong *elapsed_time) {
+  return _cl_transpose_0100(cl_queue, src, 1, A, B, b, elapsed_time);
+}
+
 // Transformation 0100, or AaBb to ABab
 extern "C" bool cl_transpose_0100(cl_command_queue cl_queue, cl_mem src,
   int A, int a, int B, int b) {
-  // Standard preparation of invoking a kernel
-  cl::CommandQueue queue = cl::CommandQueue(cl_queue);
-  Profiling prof(queue, "Transpostion 0100 (PTTWAC)");
-  cl::Buffer buffer = cl::Buffer(src);
-  clRetainMemObject(src);
-  cl::Context context;
-  if(buffer.getInfo(CL_MEM_CONTEXT, &context) != CL_SUCCESS)
-    return true;
-  MarshalProg *marshalprog = MarshalProgSingleton::Instance();
-  marshalprog->Init(context());
-
-  cl::Kernel kernel(marshalprog->program, "transpose_0100");
-  if (CL_SUCCESS != kernel.setArg(0, buffer))
-    return true;
-  cl_int err = kernel.setArg(1, A);
-  if (err != CL_SUCCESS)
-    return true;
-  err = kernel.setArg(2, a);
-  if (err != CL_SUCCESS)
-    return true;
-  err = kernel.setArg(3, B);
-  if (err != CL_SUCCESS)
-    return true;
-  err = kernel.setArg(4, b);
-  if (err != CL_SUCCESS)
-    return true;
-#if 0 //PTTWAC
-  cl::Buffer d_finished = cl::Buffer(context, CL_MEM_READ_WRITE,
-      sizeof(cl_int)*a*B, NULL, &err);
-  {
-    cl_int *finished = (cl_int *)calloc(sizeof(cl_int),
-        a*B);
-    cl_int err;
-    if (err != CL_SUCCESS)
-      return true;
-    err = queue.enqueueWriteBuffer(d_finished, CL_TRUE, 0,
-        sizeof(cl_int)*a*B, finished);
-    free(finished);
-  }
-
-  err = kernel.setArg(5, d_finished);
-  if (err != CL_SUCCESS)
-    return true;
-  cl::NDRange global(a*B*b, A), local(b, A);
-#else //PIPT
-  GPUInfo info(context());
-  cl::NDRange global(a*B*b, info.GetMaxWorkItems()/b),
-                          local(b, info.GetMaxWorkItems()/b);
-#endif
-  err = queue.enqueueNDRangeKernel(kernel, cl::NullRange, global, local, NULL,
-    prof.GetEvent());
-  if (err != CL_SUCCESS)
-    return true;
-#ifdef LIBMARSHAL_OCL_PROFILE
-  prof.Report(A*a*B*b*sizeof(float)*2);
-#endif
-  return false;
+  return _cl_transpose_0100(cl_queue, src, A, a, B, b, NULL);
 }
 
 
