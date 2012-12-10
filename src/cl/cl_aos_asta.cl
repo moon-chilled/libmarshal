@@ -213,9 +213,10 @@ __kernel void transpose_010_PTTWAC(__global float *input, int A,
 //  get_local_size(1) == number of warps
 #define WARP_SIZE 32
 #define WARPS 6
+#define P_IPT 0
 void _transpose_100(__global float *input,
     int A, int B, int b, __global int *finished, volatile __local float *data,
-    volatile __local float *backup) {
+    volatile __local float *backup, volatile __local int *done) {
   int m = A*B-1;
   int tid = get_local_id(0);
   int group_id = get_group_id(0);
@@ -229,7 +230,6 @@ if(tid < b){
     if (next_in_cycle == gid)
       continue;
 
-#define P_IPT 0
 #if P_IPT
     for (;next_in_cycle > gid;
       next_in_cycle = (next_in_cycle*A)-m*(next_in_cycle/B))
@@ -257,7 +257,6 @@ if(tid < b){
     }
 
 #else
-    volatile __local int done[WARPS];
 
     for(int i = tid; i < b; i += warp_size){
       data[warp_id*b+i] = input[gid*b+i];
@@ -285,7 +284,6 @@ if(tid < b){
       }
     }
 #endif
-#undef P_IPT
   }
 }
 }
@@ -294,7 +292,13 @@ if(tid < b){
 __kernel void transpose_100(__global float *input,
     int A, int B, int b, __global int *finished, volatile __local float *data,
     volatile __local float *backup) {
-  _transpose_100(input, A, B, b, finished, data, backup);
+#if P_IPT
+    _transpose_100(input, A, B, b, finished, data, backup, NULL);
+#else
+    volatile __local int done[WARPS];
+    _transpose_100(input, A, B, b, finished, data, backup, done);
+#endif
+
 }
 
 // Transformation 0100, or AaBb to ABab
@@ -304,6 +308,12 @@ __kernel void transpose_0100(__global float *input,
   // for supporting transformation 0100
   finished += get_group_id(2) * A * B;
   input += get_group_id(2) * A * B * b;
-  _transpose_100(input, A, B, b, finished, data, backup);
+#if P_IPT
+  _transpose_100(input, A, B, b, finished, data, backup, NULL);
+#else
+  volatile __local int done[WARPS];
+  _transpose_100(input, A, B, b, finished, data, backup, done);
+#endif
 }
 
+#undef P_IPT
