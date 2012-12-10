@@ -69,25 +69,22 @@ __kernel void BS_marshal_power2 (__global float *input, int lg2_tile_size, int w
   }
 }
 
-// limitations: height must be multiple of tile_size
-// convert a[height/tile_size][tile_size][width] to
-// a[height/tile_size][width][tile_size]
-// Launch height/tile_size blocks of NR_THREADS threads
-__kernel void PTTWAC_marshal(__global float *input, int tile_size, 
-  //int nr_block, int width, __local uint *finished) {
-  int nr_block, int width, __local uint *finished, int R, int SHFT) {
+// Converts input[A][a][B] to input[A][B][a]
+// Launch A blocks of NR_THREADS threads
+__kernel void transpose_010_PTTWAC(__global float *input, int A, 
+  int a, int B, __local uint *finished, int R, int SHFT) {
   int tidx = get_local_id(0);
-  int m = tile_size*width - 1;
-  int height = nr_block * get_local_size(0);
-  input += get_group_id(0)*tile_size*width;
+  int m = a*B - 1;
+  int height = A * get_local_size(0);
+  input += get_group_id(0)*a*B;
 
-  //const int sh_sz = (tile_size * width + 31) / 32;
 #define P 1
-  int sh_sz = R * ((tile_size * width + 31) / 32);
+  int sh_sz = R * ((a * B + 31) / 32);
   sh_sz += (sh_sz >> 5) * P; // Padding each 32 locations (Number of banks)
 
 
 #define P_IPT 0
+#define PTTWAC_REMAP 0
 #if !P_IPT
   //for (int id = tidx ; id < (tile_size * width + 31) / 32;
   for (int id = tidx ; id < sh_sz;
@@ -97,18 +94,18 @@ __kernel void PTTWAC_marshal(__global float *input, int tile_size,
   barrier(CLK_LOCAL_MEM_FENCE);
 #endif
   for (;tidx < m; tidx += get_local_size(0)) {
-    int next = (mul24(tidx,tile_size))-m*(tidx/width);
+    int next = (mul24(tidx, a))-m*(tidx/B);
 #if P_IPT
-    int prev = (mul24(tidx,width))-m*(tidx/tile_size);
+    int prev = (mul24(tidx, B))-m*(tidx/a);
     if (next <= tidx || prev < tidx)
       continue;
-    for (;next > tidx;next = (mul24(next,tile_size))-m*(next/width))
+    for (;next > tidx;next = (mul24(next, a))-m*(next/B))
       ;
     if (next !=tidx)
       continue;
     float data = input[tidx];
-    for (next = (tidx * tile_size)-m*(tidx/width);next > tidx;
-        next = (next*tile_size)-m*(next/width)) {
+    for (next = (tidx * a)-m*(tidx/B);next > tidx;
+        next = (next * a)-m*(next/B)) {
       float backup = input[next];
       input[next] = data;
       data = backup;
@@ -119,26 +116,29 @@ __kernel void PTTWAC_marshal(__global float *input, int tile_size,
       float data1 = input[tidx];
 
       //// mask and flag_id////
+#if PTTWAC_REMAP
+      unsigned int mask = 1 << (tidx / sh_sz);
+      unsigned int flag_id = tidx%sh_sz;
+#else
       unsigned int mask = (1 << (tidx % 32));
-      //unsigned int mask = 1 << (tidx / sh_sz);
-
       unsigned int flag_id = tidx >> SHFT;
       flag_id += (flag_id >> 5) * P;
-      //unsigned int flag_id = tidx%sh_sz;
+#endif
 
       uint done = atom_or(finished+flag_id, 0);
       done = (done & mask);
 
-      for (; done == 0; next = (next * tile_size) - m*(next/width)) {
+      for (; done == 0; next = (next * a) - m*(next/B)) {
         float data2 = input[next];
-
+#if PTTWAC_REMAP
+        mask = 1 << (next / sh_sz);
+        flag_id = next%sh_sz;
+#else
         //// mask and flag_id////
         mask = (1 << (next % 32));
-        //mask = 1 << (next / sh_sz);
-
         flag_id = next >> SHFT;
         flag_id += (flag_id >> 5) * P;
-        //flag_id = next%sh_sz;
+#endif
 
         done = atom_or(finished+flag_id, mask);
         done = (done & mask);
@@ -150,6 +150,7 @@ __kernel void PTTWAC_marshal(__global float *input, int tile_size,
     }
 #endif
 #undef P_IPT
+#undef PTTWAC_REMAP
   }
 }
 

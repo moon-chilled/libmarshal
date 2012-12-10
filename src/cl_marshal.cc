@@ -151,13 +151,13 @@ extern "C" bool cl_transpose_010_pttwac(cl_command_queue cl_queue,
   MarshalProg *marshalprog = MarshalProgSingleton::Instance();
   marshalprog->Init(context());
 
-  cl::Kernel kernel(marshalprog->program, "PTTWAC_marshal");
+  cl::Kernel kernel(marshalprog->program, "transpose_010_PTTWAC");
   if (CL_SUCCESS != kernel.setArg(0, buffer))
     return true;
-  cl_int err = kernel.setArg(1, a);
+  cl_int err = kernel.setArg(1, A);
   if (err != CL_SUCCESS)
     return true;
-  err |= kernel.setArg(2, A);
+  err |= kernel.setArg(2, a);
   err = kernel.setArg(3, B);
   if (err != CL_SUCCESS)
     return true;
