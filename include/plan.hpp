@@ -147,7 +147,10 @@ class T0100_PTTWAC: public Transposition {
     return 0;
   }
   bool IsFeasible(void) const {
-    return b_ < gpu_info_.GetMaxWorkItems(); // hardcoded for now
+    // the algorithm takes two shared memory buffers of b*WARPS*sizeof(float)
+    unsigned shm_sz = b_*6*sizeof(float)*2;
+    shm_sz += 6*sizeof(int); // done[WARP_SIZE];
+    return shm_sz < gpu_info_.GetMaxLocalMemSize()-512; // hardcoded for now
   }
  private:
   int A_, a_, B_, b_;

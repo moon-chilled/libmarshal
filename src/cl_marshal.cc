@@ -285,9 +285,15 @@ extern "C" bool cl_transpose(cl_command_queue queue, cl_mem src, int A, int a,
         r1 = cl_transpose_010_bs(queue, src, A, a, B*b);
       else
         r1 = cl_transpose_010_pttwac(queue, src, A, a, B*b, NULL, R);
-      if (r1)
+      if (r1) {
         std::cerr << "cl_transpose: step 1 failed\n";
-      return r1 || cl_transpose_100(queue, src, A, B*b, a, NULL);
+        return r1;
+      }
+      bool r2 = cl_transpose_100(queue, src, A, B*b, a, NULL);
+      if (r2) {
+        std::cerr << "cl_transpose: step 2 failed\n";
+      }
+      return r2;
     }
   }
   {

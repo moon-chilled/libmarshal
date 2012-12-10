@@ -330,7 +330,8 @@ TEST_F(libmarshal_cl_test, tiles) {
             d_dst, CL_TRUE, 0, sizeof(float)*h*w, src), CL_SUCCESS);
       bool r = false;
       //r = cl_transpose((*queue_)(), d_dst(), A, a, B, b);
-      r = cl_transpose((*queue_)(), d_dst(), A, a, B, b, 1); // 1 = Spreading factor, change if needed - JGL
+      // 1 = Spreading factor, change if needed - JGL
+      r = cl_transpose((*queue_)(), d_dst(), A, a, B, b, 1); 
       // This may fail
       EXPECT_EQ(false, r);
       if (r != false)
