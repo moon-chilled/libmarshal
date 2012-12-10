@@ -207,18 +207,24 @@ __kernel void transpose_010_PTTWAC(__global float *input, int A,
   }
 }*/
 // Transformation 100 - Shared memory tiling
+// Assumes:
+//  get_local_size(0) == wavefront size;
+//  get_local_size(1) == number of warps
 #define WARP_SIZE 32
 #define WARPS 6
 __kernel void transpose_100(__global float *input,
-    int A, int B, int b, __global int *finished, volatile __local float *data, volatile __local float *backup) {
+    int A, int B, int b, __global int *finished, volatile __local float *data,
+    volatile __local float *backup) {
   int m = A*B-1;
-  int tid = get_local_id(0) & 31;
+  int tid = get_local_id(0);
   int group_id = get_group_id(0);
-  int warp_id = get_local_id(0) >> 5;
-  int warps_group = get_local_size(0) >> 5;
+  int warp_id = get_local_id(1);
+  int warps_group = get_local_size(1);
+  const int warp_size = WARP_SIZE; //get_local_size(0);
 
 if(tid < b){
-  for(int gid = group_id * warps_group + warp_id; gid < m; gid += get_num_groups(0) * warps_group) {
+  for(int gid = group_id * warps_group + warp_id; gid < m;
+    gid += get_num_groups(0) * warps_group) {
     int next_in_cycle = (gid * A)-m*(gid/B);
     if (next_in_cycle == gid)
       continue;
@@ -230,49 +236,51 @@ if(tid < b){
       ;
     if (next_in_cycle !=gid)
       continue;
-    for(int i = tid; i < b; i += WARP_SIZE){
+    for(int i = tid; i < b; i += warp_size){
       data[warp_id*b+i] = input[gid*b+i];
     }
     for (next_in_cycle = (gid * A)-m*(gid/B);
       next_in_cycle > gid;
       next_in_cycle = (next_in_cycle*A)-m*(next_in_cycle/B)) {
-      for(int i = tid; i < b; i += WARP_SIZE){
+      for(int i = tid; i < b; i += warp_size){
         backup[warp_id*b+i] = input[next_in_cycle*b+i];
       }
-      for(int i = tid; i < b; i += WARP_SIZE){
+      for(int i = tid; i < b; i += warp_size){
         input[next_in_cycle*b+i] = data[warp_id*b+i];
       }
-      for(int i = tid; i < b; i += WARP_SIZE){
+      for(int i = tid; i < b; i += warp_size){
         data[warp_id*b+i] = backup[warp_id*b+i];
       }
     }
-    for(int i = tid; i < b; i += WARP_SIZE){
+    for(int i = tid; i < b; i += warp_size){
       input[gid*b+i] = data[warp_id*b+i];
     }
 
 #else
     volatile __local int done[WARPS];
 
-    for(int i = tid; i < b; i += WARP_SIZE){
+    for(int i = tid; i < b; i += warp_size){
       data[warp_id*b+i] = input[gid*b+i];
     }
     if (tid == 0){
-      done[warp_id] = atom_or(finished+gid, (int)0); //make sure the read is not cached 
+      //make sure the read is not cached 
+      done[warp_id] = atom_or(finished+gid, (int)0); 
     }
 
-    for (;done[warp_id] == 0; next_in_cycle = (next_in_cycle*A)-m*(next_in_cycle/B)) {
-      for(int i = tid; i < b; i += WARP_SIZE){
+    for (;done[warp_id] == 0; 
+        next_in_cycle = (next_in_cycle*A)-m*(next_in_cycle/B)) {
+      for(int i = tid; i < b; i += warp_size){
         backup[warp_id*b+i] = input[next_in_cycle*b+i];
       }
       if (tid == 0) {
         done[warp_id] = atom_xchg(finished+next_in_cycle, (int)1);
       }
       if (!done[warp_id]) {
-        for(int i = tid; i < b; i += WARP_SIZE){
+        for(int i = tid; i < b; i += warp_size){
           input[next_in_cycle*b+i] = data[warp_id*b+i];
         }
       }
-      for(int i = tid; i < b; i += WARP_SIZE){
+      for(int i = tid; i < b; i += warp_size){
         data[warp_id*b+i] = backup[warp_id*b+i];
       }
     }

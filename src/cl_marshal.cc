@@ -243,8 +243,8 @@ extern "C" bool cl_transpose_100(cl_command_queue cl_queue,
 
   //cl::NDRange global(std::min(A*B*b, b*1024)), local(b);
   // Shared memory tiling
-  cl::NDRange global(std::min(A*B*WARP_SIZE*WARPS, 1024*WARP_SIZE*WARPS)),
-    local(WARP_SIZE*WARPS);
+  cl::NDRange global(std::min(A*B*WARP_SIZE, 1024*WARP_SIZE), WARPS),
+    local(WARP_SIZE, WARPS);
 
   err = queue.enqueueNDRangeKernel(kernel, cl::NullRange, global, local,
     NULL, prof.GetEvent());
