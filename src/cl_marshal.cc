@@ -184,8 +184,9 @@ extern "C" bool cl_transpose_010_pttwac(cl_command_queue cl_queue,
 #ifdef LIBMARSHAL_OCL_PROFILE
   if (elapsed_time) {
     *elapsed_time += prof.Report();
+  } else {
+    prof.Report(A*a*B*sizeof(float)*2);
   }
-  // prof.Report(A*a*B*sizeof(float)*2);
 #endif
   return false;
 }

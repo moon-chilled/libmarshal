@@ -75,7 +75,6 @@ __kernel void transpose_010_PTTWAC(__global float *input, int A,
   int a, int B, __local uint *finished, int R, int SHFT) {
   int tidx = get_local_id(0);
   int m = a*B - 1;
-  int height = A * get_local_size(0);
   input += get_group_id(0)*a*B;
 
 #define P 1
@@ -111,7 +110,7 @@ __kernel void transpose_010_PTTWAC(__global float *input, int A,
       data = backup;
     }
     input[tidx] = data;
-#else
+#else // P_IPT
     if (next != tidx) {
       float data1 = input[tidx];
 
@@ -148,7 +147,7 @@ __kernel void transpose_010_PTTWAC(__global float *input, int A,
         data1 = data2;
       }
     }
-#endif
+#endif // P_IPT
 #undef P_IPT
 #undef PTTWAC_REMAP
   }

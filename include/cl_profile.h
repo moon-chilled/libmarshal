@@ -1,7 +1,6 @@
 #ifndef LIBMARSHAL_CL_PROFILE_H_
 #define LIBMARSHAL_CL_PROFILE_H_
 
-#define CL_USE_DEPRECATED_OPENCL_1_0_APIS
 #include "local_cl.hpp"
 namespace {
 class Profiling {
@@ -9,24 +8,25 @@ class Profiling {
   Profiling(cl::CommandQueue q, std::string id): id_(id),
     profiling_status_(CL_SUCCESS), queue_(q) {
     clRetainCommandQueue(q());
-    profiling_status_ = clSetCommandQueueProperty(queue_(),
-        CL_QUEUE_PROFILING_ENABLE, CL_TRUE, &old_priority_);
+    cl_command_queue_properties cp;
+    profiling_status_ = clGetCommandQueueInfo(queue_(),
+      CL_QUEUE_PROPERTIES, sizeof(cl_command_queue_properties),
+        &cp, NULL);
+    if (!(cp & CL_QUEUE_PROFILING_ENABLE)) {
+      std::cerr << "[Profile] Command queue is not set for profiling\n";
+    }
   }
   cl::Event *GetEvent(void) { return &event_; }
   
-  ~Profiling() {
-    profiling_status_ |= clSetCommandQueueProperty(queue_(),
-        CL_QUEUE_PROFILING_ENABLE, CL_FALSE, NULL);
-    profiling_status_ |= clSetCommandQueueProperty(queue_(), old_priority_,
-        CL_TRUE, NULL);
-    if (profiling_status_ != CL_SUCCESS) {
-      std::cerr << "[Profile] " << id_ <<
-        " failed restoring command queue property ("
-        << profiling_status_<< ")"<<std::endl;
-    }
-  }
+  ~Profiling() {}
+
   cl_ulong Report(void) {
-    profiling_status_ |= queue_.finish();
+    profiling_status_ = queue_.finish();
+    if (profiling_status_ != CL_SUCCESS) {
+      std::cerr << "[Profile] "<<id_ << ": clFinish() failed on the queue: ";
+      std::cerr << profiling_status_ << "\n";
+      return 0;
+    }
     cl_ulong start_time, end_time;
     profiling_status_ |= clGetEventProfilingInfo(event_(),
         CL_PROFILING_COMMAND_START, sizeof(cl_ulong), &start_time, NULL);

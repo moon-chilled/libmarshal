@@ -61,7 +61,7 @@ void libmarshal_cl_test::SetUp(void) {
   std::cerr << "Testing on device " << device_name_ << std::endl;
 
   // Create a command queue on the first GPU device
-  queue_ = new cl::CommandQueue(*context_, devices[0]);
+  queue_ = new cl::CommandQueue(*context_, devices[0], CL_QUEUE_PROFILING_ENABLE);
 }
 
 extern "C" void cl_marshal_finalize(void);
