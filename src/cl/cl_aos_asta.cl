@@ -292,7 +292,7 @@ __kernel void transpose_100(__global float *input,
     int A, int B, int b, __global int *finished, volatile __local float *data,
     volatile __local float *backup) {
 #if P_IPT
-    _transpose_100(input, A, B, b, finished, data, backup, NULL);
+    _transpose_100(input, A, B, b, finished, data, backup, 0);
 #else
     volatile __local int done[WARPS];
     _transpose_100(input, A, B, b, finished, data, backup, done);
@@ -308,7 +308,7 @@ __kernel void transpose_0100(__global float *input,
   finished += get_group_id(2) * A * B;
   input += get_group_id(2) * A * B * b;
 #if P_IPT
-  _transpose_100(input, A, B, b, finished, data, backup, NULL);
+  _transpose_100(input, A, B, b, finished, data, backup, 0);
 #else
   volatile __local int done[WARPS];
   _transpose_100(input, A, B, b, finished, data, backup, done);
