@@ -300,12 +300,14 @@ void tile(int x) {
   std::cout << "\n";
 }
 
-TEST_F(libmarshal_cl_test, tiles) {
-  int ws[6] = {40, 62, 197, 215, 59, 39};
-  int hs[6] = {11948, 17281, 35588, 44609, 90449, 49152};
+TEST_F(libmarshal_cl_test, full) {
+  // dataset size from http://www8.cs.umu.se/research/uminf/reports/2009/001/part1.pdf
+  // figure 12
+  int ws[] = {1800, 2500, 3200, 3900, 5100, 7200};
+  int hs[] = {7200, 5100, 4000, 3300, 2500, 1800};
   for (int n = 0; n < 6; n++) {
   int w = ws[n];
-  int h = hs[n]; //(hs[0]+t-1)/t*t;
+  int h = hs[n];
 
   float *src = (float*)malloc(sizeof(float)*h*w);
   float *dst = (float*)malloc(sizeof(float)*h*w);
@@ -321,8 +323,8 @@ TEST_F(libmarshal_cl_test, tiles) {
     int A = h/hoptions[i], a = hoptions[i];
     for (int j = 0; j < woptions.size(); j++) {
       int B = w/woptions[j], b = woptions[j];
-      std::cerr << " A = " << A << "; a= " << a << ";";
-      std::cerr << " B = " << B << "; b= " << b <<"\n";
+      std::cerr << "" << A << "," << a << ",";
+      std::cerr << "" << B << "," << b <<",";
       cl_int err;
       cl::Buffer d_dst = cl::Buffer(*context_, CL_MEM_READ_WRITE,
           sizeof(float)*h*w, NULL, &err);

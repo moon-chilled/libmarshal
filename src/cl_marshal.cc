@@ -275,7 +275,7 @@ extern "C" bool cl_transpose(cl_command_queue queue, cl_mem src, int A, int a,
   if(buffer.getInfo(CL_MEM_CONTEXT, &context) != CL_SUCCESS)
     return true;
   cl_ulong et = 0;
-  {
+  if (0){
     // Method 1: Aa >> Bb
     T010_BS step1(a, B*b, context()); // Aa(Bb) to A(Bb)a
     T010_PTTWAC step1p(a, B*b, context()); // Aa(Bb) to A(Bb)a
@@ -296,34 +296,57 @@ extern "C" bool cl_transpose(cl_command_queue queue, cl_mem src, int A, int a,
         std::cerr << "cl_transpose: step 2 failed\n";
       }
 #ifdef LIBMARSHAL_OCL_PROFILE
-      std::cerr << "[cl_transpose] method 1; "<< 
-        float(A*a*B*b*2*sizeof(float))/et << " GB/s\n";
+      //std::cerr << "[cl_transpose] method 1; "<< 
+      std::cerr << 
+        float(A*a*B*b*2*sizeof(float))/et << "\n";
 #endif
       return r2;
     }
   }
-  {
-    // Method 2: a < MAX_THREADS 
+  if (1) {
+    // Method 2: a, b < TILE_SIZE 
     // AaBb to BAab (step 1)
     // to BAba (step 2)
     // to BbAa (step 3)
     T0100_PTTWAC step1(1, A*a, B, b, context());
-    T010_PTTWAC step2(a, b, context());
+    T010_BS step2(a, b, context());
+    T010_PTTWAC step2p(a, b, context());
     T0100_PTTWAC step3(B, A, b, a, context());
-    if (step1.IsFeasible() && step2.IsFeasible() && step3.IsFeasible()) {
+    if (step1.IsFeasible() && (step2.IsFeasible()||step2p.IsFeasible()) 
+        && step3.IsFeasible()) {
+      bool r1 = cl_transpose_100(queue, src, A*a, B, b, &et);
+      if (r1) {
+        std::cerr << "cl_transpose: step 2.1 failed\n";
+        return r1;
+      }
+      bool r2;
+      if (step2.IsFeasible())
+        r2 = cl_transpose_010_bs(queue, src, B*A, a, b, &et);
+      else
+        r2 = cl_transpose_010_pttwac(queue, src, B*A, a, b, &et, R);
+      if (r2) {
+        std::cerr << "cl_transpose: step 2.2 failed\n";
+        return r2;
+      }
+      bool r3 = cl_transpose_0100(queue, src, B, A, b, a, &et);
+      if (r3) {
+        std::cerr << "cl_transpose: step 2.3 failed\n";
+        return r3;
+      }
 #ifdef LIBMARSHAL_OCL_PROFILE
-      std::cerr << "cl_transpose: method 2\n";
+      //std::cerr << "[cl_transpose] method 2; "<< 
+      std::cerr<<
+        float(A*a*B*b*2*sizeof(float))/et << "\n";
 #endif
-      return cl_transpose_100(queue, src, A*a, B, b, NULL) ||
-        cl_transpose_010_pttwac(queue, src, B*A, a, b, NULL, R) ||
-        cl_transpose_0100(queue, src, B, A, b, a, NULL);
+      return r1 || r2 || r3;
     }
   }
   // fallback
   bool r = cl_transpose_0100(queue, src, 1, A*a, B*b, 1, &et);
 #ifdef LIBMARSHAL_OCL_PROFILE
-  std::cerr << "[cl_transpose] fallback; "<< 
-    float(A*a*B*b*2*sizeof(float))/et << " GB/s\n";
+  //std::cerr << "[cl_transpose] fallback; "<< 
+  std::cerr<<
+    float(A*a*B*b*2*sizeof(float))/et << "\n";
 #endif
   return r;
 }
