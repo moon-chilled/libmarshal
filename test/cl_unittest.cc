@@ -321,7 +321,8 @@ TEST_F(libmarshal_cl_test, tiles) {
     int A = h/hoptions[i], a = hoptions[i];
     for (int j = 0; j < woptions.size(); j++) {
       int B = w/woptions[j], b = woptions[j];
-      std::cerr << " A = " << A << "; a= " << a << "; B = " << B << "; b= " << b <<"\n";
+      std::cerr << " A = " << A << "; a= " << a << ";";
+      std::cerr << " B = " << B << "; b= " << b <<"\n";
       cl_int err;
       cl::Buffer d_dst = cl::Buffer(*context_, CL_MEM_READ_WRITE,
           sizeof(float)*h*w, NULL, &err);
@@ -331,7 +332,7 @@ TEST_F(libmarshal_cl_test, tiles) {
       bool r = false;
       //r = cl_transpose((*queue_)(), d_dst(), A, a, B, b);
       // 1 = Spreading factor, change if needed - JGL
-      r = cl_transpose((*queue_)(), d_dst(), A, a, B, b, 1); 
+      r = cl_transpose((*queue_)(), d_dst(), A, a, B, b, 1, NULL); 
       // This may fail
       EXPECT_EQ(false, r);
       if (r != false)
@@ -376,7 +377,7 @@ TEST_F(libmarshal_cl_test, test_0100) {
   ASSERT_EQ(queue_->enqueueWriteBuffer(
         d_dst, CL_TRUE, 0, sizeof(float)*size, src), CL_SUCCESS);
   bool r = false;
-  r = cl_transpose_0100((*queue_)(), d_dst(), A, a, B, b);
+  r = cl_transpose_0100((*queue_)(), d_dst(), A, a, B, b, NULL);
   // This may fail
   EXPECT_EQ(false, r);
   // compute golden: A instances of aBb->Bab transformation

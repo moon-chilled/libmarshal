@@ -101,8 +101,7 @@ static int count_zero_bits(unsigned int v) {
 
 // Transformation 010, or AaB to ABa
 extern "C" bool cl_transpose_010_bs(cl_command_queue cl_queue,
-    cl_mem src, int A, int a,
-    int B) {
+    cl_mem src, int A, int a, int B, cl_ulong *elapsed_time) {
   // Standard preparation of invoking a kernel
   cl::CommandQueue queue = cl::CommandQueue(cl_queue);
   Profiling prof(queue, "AOS-ASTA BS");
@@ -132,7 +131,11 @@ extern "C" bool cl_transpose_010_bs(cl_command_queue cl_queue,
   if (err != CL_SUCCESS)
     return true;
 #ifdef LIBMARSHAL_OCL_PROFILE
-  prof.Report(A*a*B*sizeof(float)*2);
+  if (elapsed_time) {
+    *elapsed_time += prof.Report();
+  } else {
+    prof.Report(A*a*B*sizeof(float)*2);
+  }
 #endif
   return false;
 }
@@ -265,12 +268,13 @@ bool _cl_transpose_0100(cl_command_queue cl_queue,
 }
 
 extern "C" bool cl_transpose(cl_command_queue queue, cl_mem src, int A, int a,
-  int B, int b, int R) {
+  int B, int b, int R, cl_ulong *elapsed_time) {
   cl::Buffer buffer = cl::Buffer(src);
   clRetainMemObject(src);
   cl::Context context;
   if(buffer.getInfo(CL_MEM_CONTEXT, &context) != CL_SUCCESS)
     return true;
+  cl_ulong et = 0;
   {
     // Method 1: Aa >> Bb
     T010_BS step1(a, B*b, context()); // Aa(Bb) to A(Bb)a
@@ -278,22 +282,23 @@ extern "C" bool cl_transpose(cl_command_queue queue, cl_mem src, int A, int a,
     T0100_PTTWAC step2(1, A, B*b, a, context()); //1A(Bb)a to 1(Bb)Aa
     if ((step1.IsFeasible()||step1p.IsFeasible()) &&
          step2.IsFeasible()) {
-#ifdef LIBMARSHAL_OCL_PROFILE
-      std::cerr << "cl_transpose: method 1\n";
-#endif
       bool r1;
       if (step1.IsFeasible())
-        r1 = cl_transpose_010_bs(queue, src, A, a, B*b);
+        r1 = cl_transpose_010_bs(queue, src, A, a, B*b, &et);
       else
-        r1 = cl_transpose_010_pttwac(queue, src, A, a, B*b, NULL, R);
+        r1 = cl_transpose_010_pttwac(queue, src, A, a, B*b, &et, R);
       if (r1) {
         std::cerr << "cl_transpose: step 1 failed\n";
         return r1;
       }
-      bool r2 = cl_transpose_100(queue, src, A, B*b, a, NULL);
+      bool r2 = cl_transpose_100(queue, src, A, B*b, a, &et);
       if (r2) {
         std::cerr << "cl_transpose: step 2 failed\n";
       }
+#ifdef LIBMARSHAL_OCL_PROFILE
+      std::cerr << "[cl_transpose] method 1; "<< 
+        float(A*a*B*b*2*sizeof(float))/et << " GB/s\n";
+#endif
       return r2;
     }
   }
@@ -311,14 +316,16 @@ extern "C" bool cl_transpose(cl_command_queue queue, cl_mem src, int A, int a,
 #endif
       return cl_transpose_100(queue, src, A*a, B, b, NULL) ||
         cl_transpose_010_pttwac(queue, src, B*A, a, b, NULL, R) ||
-        cl_transpose_0100(queue, src, B, A, b, a);
+        cl_transpose_0100(queue, src, B, A, b, a, NULL);
     }
   }
   // fallback
+  bool r = cl_transpose_0100(queue, src, 1, A*a, B*b, 1, &et);
 #ifdef LIBMARSHAL_OCL_PROFILE
-  std::cerr << "cl_transpose: fallback\n";
+  std::cerr << "[cl_transpose] fallback; "<< 
+    float(A*a*B*b*2*sizeof(float))/et << " GB/s\n";
 #endif
-  return cl_transpose_0100(queue, src, 1, A*a, B*b, 1);
+  return r;
 }
 
 // Transformation 100, or ABb to BAb
@@ -329,8 +336,8 @@ extern "C" bool cl_transpose_100(cl_command_queue cl_queue,
 
 // Transformation 0100, or AaBb to ABab
 extern "C" bool cl_transpose_0100(cl_command_queue cl_queue, cl_mem src,
-  int A, int a, int B, int b) {
-  return _cl_transpose_0100(cl_queue, src, A, a, B, b, NULL);
+  int A, int a, int B, int b, cl_ulong *elapsed_time) {
+  return _cl_transpose_0100(cl_queue, src, A, a, B, b, elapsed_time);
 }
 
 
@@ -342,7 +349,7 @@ extern "C" bool cl_aos_asta_bs(cl_command_queue cl_queue,
   return cl_transpose_010_bs(cl_queue, src,
     height/tile_size /*A*/,
     tile_size /*a*/,
-    width /*B*/);
+    width /*B*/, NULL);
 }
 
 // Transformation 010, or AaB to ABa
