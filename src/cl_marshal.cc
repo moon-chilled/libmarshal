@@ -303,7 +303,8 @@ extern "C" bool cl_transpose(cl_command_queue queue, cl_mem src, int A, int a,
       return r2;
     }
   }
-  if (1) {
+  // 3-step approach
+  if (0) {
     // Method 2: a, b < TILE_SIZE 
     // AaBb to BAab (step 1)
     // to BAba (step 2)
@@ -341,6 +342,53 @@ extern "C" bool cl_transpose(cl_command_queue queue, cl_mem src, int A, int a,
       return r1 || r2 || r3;
     }
   }
+  // 4-step approach
+  if (1) {
+    // Karlsson's method: a, b < TILE_SIZE 
+    // AaBb to ABab (0100)
+    // ABab ABba    (0010)
+    // ABba BAba    (1000)
+    // BAba to BbAa (0100)
+    T0100_PTTWAC step1(A, a, B, b, context());
+    T010_BS step2(a, b, context());
+    T010_PTTWAC step2p(a, b, context());
+    T0100_PTTWAC step3(1, A, B, b*a, context());
+    T0100_PTTWAC step4(B, A, b, a, context());
+    if (step1.IsFeasible() && (step2.IsFeasible()||step2p.IsFeasible()) 
+        && step3.IsFeasible() && step4.IsFeasible()) {
+      bool r1 = cl_transpose_0100(queue, src, A, a, B, b, &et);
+      if (r1) {
+        std::cerr << "cl_transpose: step 4.1 failed\n";
+        return r1;
+      }
+      bool r2;
+      if (step2.IsFeasible())
+        r2 = cl_transpose_010_bs(queue, src, B*A, a, b, &et);
+      else
+        r2 = cl_transpose_010_pttwac(queue, src, B*A, a, b, &et, R);
+      if (r2) {
+        std::cerr << "cl_transpose: step 4.2 failed\n";
+        return r2;
+      }
+      bool r3 = cl_transpose_100(queue, src, A, B, b*a, &et);
+      if (r3) {
+        std::cerr << "cl_transpose: step 4.3 failed\n";
+        return r3;
+      }
+      bool r4 = cl_transpose_0100(queue, src, B, A, b, a, &et);
+      if (r4) {
+        std::cerr << "cl_transpose: step 4.4 failed\n";
+        return r4;
+      }
+#ifdef LIBMARSHAL_OCL_PROFILE
+      //std::cerr << "[cl_transpose] Karlsson's method; "<< 
+      std::cerr<<
+        float(A*a*B*b*2*sizeof(float))/et << "\n";
+#endif
+      return r1 || r2 || r3 || r4;
+    }
+  }
+
   // fallback
   bool r = cl_transpose_0100(queue, src, 1, A*a, B*b, 1, &et);
 #ifdef LIBMARSHAL_OCL_PROFILE

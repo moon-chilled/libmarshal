@@ -107,7 +107,7 @@ class T010_BS: public Transposition {
   }
   bool IsFeasible(void) const {
     /* a small fraction of local memory is not really usable */
-    return m*n < gpu_info_.GetMaxLocalMemSize()/4-256;
+    return m*n < gpu_info_.GetMaxLocalMemSize()/4-512;
   }
 };
 
