@@ -304,7 +304,7 @@ extern "C" bool cl_transpose(cl_command_queue queue, cl_mem src, int A, int a,
     }
   }
   // 3-step approach
-  if (0) {
+  if (1) {
     // Method 2: a, b < TILE_SIZE 
     // AaBb to BAab (step 1)
     // to BAba (step 2)
@@ -343,7 +343,7 @@ extern "C" bool cl_transpose(cl_command_queue queue, cl_mem src, int A, int a,
     }
   }
   // 4-step approach
-  if (1) {
+  if (0) {
     // Karlsson's method: a, b < TILE_SIZE 
     // AaBb to ABab (0100)
     // ABab ABba    (0010)

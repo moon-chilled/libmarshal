@@ -323,14 +323,17 @@ TEST_F(libmarshal_cl_test, full) {
     int A = h/hoptions[i], a = hoptions[i];
     for (int j = 0; j < woptions.size(); j++) {
       int B = w/woptions[j], b = woptions[j];
-      std::cerr << "" << A << "," << a << ",";
-      std::cerr << "" << B << "," << b <<",";
       cl_int err;
       cl::Buffer d_dst = cl::Buffer(*context_, CL_MEM_READ_WRITE,
           sizeof(float)*h*w, NULL, &err);
       ASSERT_EQ(err, CL_SUCCESS);
-      ASSERT_EQ(queue_->enqueueWriteBuffer(
-            d_dst, CL_TRUE, 0, sizeof(float)*h*w, src), CL_SUCCESS);
+      err = queue_->enqueueWriteBuffer(
+            d_dst, CL_TRUE, 0, sizeof(float)*h*w, src);
+      EXPECT_EQ(err, CL_SUCCESS);
+      if (err != CL_SUCCESS)
+        continue;
+      std::cerr << "" << A << "," << a << ",";
+      std::cerr << "" << B << "," << b <<",";
       bool r = false;
       //r = cl_transpose((*queue_)(), d_dst(), A, a, B, b);
       // 1 = Spreading factor, change if needed - JGL
