@@ -27,7 +27,6 @@
 #include "embd.hpp"
 #include "singleton.hpp"
 #include "plan.hpp"
-//#include "cl_constants.h"
 #include <math.h>
 #include <stdio.h>
 
@@ -83,7 +82,7 @@ extern "C" void cl_marshal_finalize(void) {
   MarshalProg *marshalprog = MarshalProgSingleton::Instance();
   marshalprog->Finalize();
 }
-#define NR_THREADS 256
+#define NR_THREADS 512
 #define IS_POW2(x) (x && !(x &( x- 1)))
 //#define IS_POW2(x) 0
 // v: 32-bit word input to count zero bits on right
@@ -239,12 +238,25 @@ bool _cl_transpose_0100(cl_command_queue cl_queue,
     return true;
 
   // Shared memory tiling
-#define WARPS 6
+#define WARPS 4
 #define WARP_SIZE 32
-  err = kernel.setArg(5, b*WARPS*sizeof(cl_float), NULL);
+  // Virtual warp
+  int v_warp_size;
+  if (b <= 4) v_warp_size = 4;
+  else if (b > 4 && b <= 24) v_warp_size = 8;
+  else if (b > 24 && b <= 48) v_warp_size = 16;
+  else v_warp_size = 32;
+
+  err = kernel.setArg(5, b*WARPS*(WARP_SIZE/v_warp_size)*sizeof(cl_float), NULL);
   if (err != CL_SUCCESS)
     return true;
-  err = kernel.setArg(6, b*WARPS*sizeof(cl_float), NULL);
+  err = kernel.setArg(6, b*WARPS*(WARP_SIZE/v_warp_size)*sizeof(cl_float), NULL);
+  if (err != CL_SUCCESS)
+    return true;
+  err = kernel.setArg(7, v_warp_size);
+  if (err != CL_SUCCESS)
+    return true;
+  err = kernel.setArg(8, WARPS*(WARP_SIZE/v_warp_size)*sizeof(cl_int), NULL);
   if (err != CL_SUCCESS)
     return true;
 

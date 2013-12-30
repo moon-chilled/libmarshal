@@ -18,16 +18,15 @@
 //  This file defines the OpenCL kernels of the libmarshal 
 //
 //===---------------------------------------------------------------------===//
-//#include "../cl_constants.h"
-
-__kernel void mymemset (__global float *input) {
-  input[get_global_id(0)] = 0.0f;
-}
-
 #pragma OPENCL EXTENSION cl_khr_local_int32_base_atomics : enable
 #pragma OPENCL EXTENSION cl_khr_local_int32_extended_atomics : enable
 #pragma OPENCL EXTENSION cl_khr_global_int32_base_atomics : enable
 #pragma OPENCL EXTENSION cl_khr_global_int32_extended_atomics : enable
+
+
+__kernel void mymemset (__global float *input) {
+  input[get_global_id(0)] = 0.0f;
+}
 
 // limitations: tile_size * width cannot exceed maximal # of threads in
 // a block allowed in the system
@@ -211,17 +210,48 @@ __kernel void transpose_010_PTTWAC(__global float *input, int A,
 //  get_local_size(0) == wavefront size;
 //  get_local_size(1) == number of warps
 #define WARP_SIZE 32
-#define WARPS 6
+//#define WARPS 6
 #define P_IPT 0
 void _transpose_100(__global float *input,
     int A, int B, int b, __global int *finished, volatile __local float *data,
-    volatile __local float *backup, volatile __local int *done) {
+    volatile __local float *backup, volatile __local int *done, const int warp_size) {
   int m = A*B-1;
   int tid = get_local_id(0);
   int group_id = get_group_id(0);
   int warp_id = get_local_id(1);
   int warps_group = get_local_size(1);
-  const int warp_size = WARP_SIZE; //get_local_size(0);
+  //const int warp_size = WARP_SIZE; //get_local_size(0);
+
+  // Recalculate IDs if virtual warp is used
+  if (warp_size == 16){
+    tid = get_local_id(0) & 15;
+    int vwarps_in_warp = WARP_SIZE / warp_size;
+    warps_group = warps_group * vwarps_in_warp;
+    int vwarp_id = get_local_id(0) >> 4;
+    warp_id = warp_id * vwarps_in_warp + vwarp_id;
+  }
+  else if (warp_size == 8){
+    tid = get_local_id(0) & 7;
+    int vwarps_in_warp = WARP_SIZE / warp_size;
+    warps_group = warps_group * vwarps_in_warp;
+    int vwarp_id = get_local_id(0) >> 3;
+    warp_id = warp_id * vwarps_in_warp + vwarp_id;
+  }
+  else if (warp_size == 4){
+    tid = get_local_id(0) & 3;
+    int vwarps_in_warp = WARP_SIZE / warp_size;
+    warps_group = warps_group * vwarps_in_warp;
+    int vwarp_id = get_local_id(0) >> 2;
+    warp_id = warp_id * vwarps_in_warp + vwarp_id;
+  }
+  else if (warp_size == 2){
+    tid = get_local_id(0) & 1;
+    int vwarps_in_warp = WARP_SIZE / warp_size;
+    warps_group = warps_group * vwarps_in_warp;
+    int vwarp_id = get_local_id(0) >> 1;
+    warp_id = warp_id * vwarps_in_warp + vwarp_id;
+  }
+
 if(tid < b){
   for(int gid = group_id * warps_group + warp_id; gid < m;
     gid += get_num_groups(0) * warps_group) {
@@ -290,12 +320,12 @@ if(tid < b){
 // Transformation 100 
 __kernel void transpose_100(__global float *input,
     int A, int B, int b, __global int *finished, volatile __local float *data,
-    volatile __local float *backup) {
+    volatile __local float *backup, int warp_size, volatile __local int *done) {
 #if P_IPT
-    _transpose_100(input, A, B, b, finished, data, backup, 0);
+    _transpose_100(input, A, B, b, finished, data, backup, 0, WARP_SIZE);
 #else
-    volatile __local int done[WARPS];
-    _transpose_100(input, A, B, b, finished, data, backup, done);
+    //volatile __local int done[WARPS];
+    _transpose_100(input, A, B, b, finished, data, backup, done, warp_size);
 #endif
 
 }
@@ -303,15 +333,15 @@ __kernel void transpose_100(__global float *input,
 // Transformation 0100, or AaBb to ABab
 __kernel void transpose_0100(__global float *input,
     int A, int B, int b, __global int *finished, volatile __local float *data,
-    volatile __local float *backup) {
+    volatile __local float *backup, int warp_size, volatile __local int *done) {
   // for supporting transformation 0100
   finished += get_group_id(2) * A * B;
   input += get_group_id(2) * A * B * b;
 #if P_IPT
-  _transpose_100(input, A, B, b, finished, data, backup, 0);
+  _transpose_100(input, A, B, b, finished, data, backup, 0, WARP_SIZE);
 #else
-  volatile __local int done[WARPS];
-  _transpose_100(input, A, B, b, finished, data, backup, done);
+  //volatile __local int done[WARPS];
+  _transpose_100(input, A, B, b, finished, data, backup, done, warp_size);
 #endif
 }
 

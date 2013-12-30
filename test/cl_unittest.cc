@@ -140,9 +140,13 @@ TEST_F(libmarshal_cl_test, bug537) {
   int ws[6] = {40, 62, 197, 215, 59, 39};
   int hs[6] = {11948, 17281, 35588, 44609, 90449, 49152};
   for (int i = 0; i < 6; i++)
-  for (int t = 16; t <= 64; t*=2) {
+  //for (int t = 16; t <= 64; t*=2) {
+  for (int t = 2; t <= 16; t+=2) {
     int w = ws[i];
     int h = (hs[i]+t-1)/t*t;
+
+    std::cerr << "w = "<<w<< "; h/t = " <<h/t<< "; t = " <<t<< "\t";
+
     float *src = (float*)malloc(sizeof(float)*h*w);
     float *dst = (float*)malloc(sizeof(float)*h*w);
     float *dst_gpu = (float*)malloc(sizeof(float)*h*w);
@@ -178,7 +182,7 @@ TEST_F(libmarshal_cl_test, bug537) {
     }
     Transposition tx(w,h/t);
     std::cerr << "Performance = " << float(2*h*w*sizeof(float)*N)/et;
-    std::cerr << "GB/s\n";
+    std::cerr << "GB/s\t";
     std::cerr << "Num cycles:"<<tx.GetNumCycles()<< "; percentage = " <<
       (float)tx.GetNumCycles()/(float)(h*w/t)*100 << "\n";
     free(src);
@@ -259,6 +263,7 @@ TEST_F(libmarshal_cl_test, bug536) {
 
 TEST_F(libmarshal_cl_test, bug533) {
   int w = 20;
+//for (int w = 16; w <= 64; w++){
   for (int t=16; t<34; t++) {
     int h = (100*100*130+t-1)/t*t;
     float *src = (float*)malloc(sizeof(float)*h*w);
@@ -286,6 +291,7 @@ TEST_F(libmarshal_cl_test, bug533) {
     free(dst);
     free(dst_gpu);
   }
+//}
 }
 
 void tile(int x) {
@@ -305,7 +311,7 @@ TEST_F(libmarshal_cl_test, full) {
   // figure 12
   int ws[] = {1800, 2500, 3200, 3900, 5100, 7200};
   int hs[] = {7200, 5100, 4000, 3300, 2500, 1800};
-  for (int n = 0; n < 6; n++) {
+  for (int n = 0; n < 1; n++) {
   int w = ws[n];
   int h = hs[n];
 
@@ -320,6 +326,7 @@ TEST_F(libmarshal_cl_test, full) {
   std::vector<int> hoptions = hf.get_tile_sizes();
   std::vector<int> woptions = wf.get_tile_sizes();
   for (int i = 0 ; i < hoptions.size(); i++) {
+  //for (int i = 0 ; i < 1; i++) {
     int A = h/hoptions[i], a = hoptions[i];
     for (int j = 0; j < woptions.size(); j++) {
       int B = w/woptions[j], b = woptions[j];
