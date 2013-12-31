@@ -82,7 +82,7 @@ extern "C" void cl_marshal_finalize(void) {
   MarshalProg *marshalprog = MarshalProgSingleton::Instance();
   marshalprog->Finalize();
 }
-#define NR_THREADS 512
+#define NR_THREADS 1024
 #define IS_POW2(x) (x && !(x &( x- 1)))
 //#define IS_POW2(x) 0
 // v: 32-bit word input to count zero bits on right
@@ -124,7 +124,17 @@ extern "C" bool cl_transpose_010_bs(cl_command_queue cl_queue,
   err |= kernel.setArg(3, B*(a+1)*sizeof(cl_float), NULL);
   if (err != CL_SUCCESS)
     return true;
-  cl::NDRange global(A*NR_THREADS), local(NR_THREADS);
+
+  // Original - InPar'2012
+  //cl::NDRange global(A*NR_THREADS), local(NR_THREADS);
+  int nr_threads;
+  int sh_sz = a*B;
+  if (sh_sz <= 1024) nr_threads = 128;
+  else if (sh_sz > 1024 && sh_sz <= 2048) nr_threads = 256;
+  else nr_threads = 512;
+  std::cerr << "nr_threads = " << nr_threads << "\t"; // Print nr_threads
+  cl::NDRange global(A*nr_threads), local(nr_threads);
+
   err = queue.enqueueNDRangeKernel(kernel, cl::NullRange, global, local, NULL,
     prof.GetEvent());
   if (err != CL_SUCCESS)
@@ -178,6 +188,7 @@ extern "C" bool cl_transpose_010_pttwac(cl_command_queue cl_queue,
   if (err != CL_SUCCESS)
     return true;
 
+  std::cerr << "NR_THREADS = " << NR_THREADS << "\t"; // Print nr_threads
   cl::NDRange global(A*NR_THREADS), local(NR_THREADS);
   err = queue.enqueueNDRangeKernel(kernel, cl::NullRange, global, local, NULL,
     prof.GetEvent());
@@ -352,8 +363,9 @@ extern "C" bool cl_transpose(cl_command_queue queue, cl_mem src, int A, int a,
     T010_BS step2(a, b, context());
     T010_PTTWAC step2p(a, b, context());
     T0100_PTTWAC step3(B, A, b, a, context());
-    if (step1.IsFeasible() && (step2.IsFeasible()||step2p.IsFeasible()) 
-        && step3.IsFeasible()) {
+    //if (step1.IsFeasible() && (step2.IsFeasible()||step2p.IsFeasible()) 
+    //    && step3.IsFeasible()) {
+    if (((a*b+31)/32) + ((((a*b+31)/32)>>5)*P) <= 12288 - 512 && b < (12288 - 512)/2 && a < (12288 - 512)/2){
       bool r1 = cl_transpose_100(queue, src, A*a, B, b, &et);
       if (r1) {
         std::cerr << "cl_transpose: step 2.1 failed\n";
