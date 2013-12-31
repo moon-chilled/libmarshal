@@ -140,8 +140,8 @@ TEST_F(libmarshal_cl_test, bug537) {
   int ws[6] = {40, 62, 197, 215, 59, 39};
   int hs[6] = {11948, 17281, 35588, 44609, 90449, 49152};
   for (int i = 0; i < 6; i++)
+  for (int t = 48; t <= 4096; t*=2) {
   //for (int t = 16; t <= 64; t*=2) {
-  for (int t = 2; t <= 16; t+=2) {
     int w = ws[i];
     int h = (hs[i]+t-1)/t*t;
 
@@ -159,8 +159,8 @@ TEST_F(libmarshal_cl_test, bug537) {
     ASSERT_EQ(queue_->enqueueWriteBuffer(
           d_dst, CL_TRUE, 0, sizeof(float)*h*w, src), CL_SUCCESS);
     cl_uint oldref = GetCtxRef();
-    const int N = 10;
-    const int WARM_UP = 2;
+    const int N = 1;
+    const int WARM_UP = 0;
     cl_ulong et = 0;
     for (int n = 0; n < N+WARM_UP; n++) {
       if (n == WARM_UP)
@@ -199,7 +199,7 @@ TEST_F(libmarshal_cl_test, bug536) {
     int w = ws[i];
     int h = (hs[i]+t-1)/t*t;
 
-#define MAX_MEM 12288
+#define MAX_MEM 4096 //12288
 #define P 1
     bool r;
     for(int S_f = 1; S_f <= 32; S_f *=2){ // (Use S_f <= 1 for testing IPT) - S_f = Spreading factor
@@ -326,7 +326,7 @@ TEST_F(libmarshal_cl_test, full) {
   std::vector<int> hoptions = hf.get_tile_sizes();
   std::vector<int> woptions = wf.get_tile_sizes();
   for (int i = 0 ; i < hoptions.size(); i++) {
-  //for (int i = 0 ; i < 1; i++) {
+  //for (int i = 0; i < 2; i++) {
     int A = h/hoptions[i], a = hoptions[i];
     for (int j = 0; j < woptions.size(); j++) {
       int B = w/woptions[j], b = woptions[j];
@@ -341,10 +341,25 @@ TEST_F(libmarshal_cl_test, full) {
         continue;
       std::cerr << "" << A << "," << a << ",";
       std::cerr << "" << B << "," << b <<",";
+
       bool r = false;
       //r = cl_transpose((*queue_)(), d_dst(), A, a, B, b);
       // 1 = Spreading factor, change if needed - JGL
-      r = cl_transpose((*queue_)(), d_dst(), A, a, B, b, 1, NULL); 
+      //r = cl_transpose((*queue_)(), d_dst(), A, a, B, b, 1, NULL); 
+
+      // Calculate spreading factor
+      int S_f = (MAX_MEM-512) / (((a*b+31)/32) + ((((a*b+31)/32)>>5)*P));
+      std::cerr << "S_f = " << S_f << ",";
+      if (S_f < 2) S_f = 1;
+      else if (S_f >=2 && S_f < 4) S_f = 2;
+      else if (S_f >=4 && S_f < 8) S_f = 4;
+      else if (S_f >=8 && S_f < 16) S_f = 8;
+      else if (S_f >=16 && S_f < 32) S_f = 16;
+      else S_f = 32; // BS will be used
+      std::cerr << "" << S_f << ",\t";
+
+      r = cl_transpose((*queue_)(), d_dst(), A, a, B, b, S_f, NULL); 
+
       // This may fail
       EXPECT_EQ(false, r);
       if (r != false)
@@ -367,7 +382,7 @@ TEST_F(libmarshal_cl_test, full) {
 
 // testing 0100 transformation AaBb->ABab
 TEST_F(libmarshal_cl_test, test_0100) {
-  int bs[] = {32};
+  int bs[] = {256}; //{32};
   int Bs[] = {57};
   int as[] = {62};
   int As[] = {128};

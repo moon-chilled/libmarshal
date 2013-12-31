@@ -317,6 +317,53 @@ if(tid < b){
 }
 }
 
+void _transpose_100_b(__global float *input,
+    int A, int B, int b, __global int *finished, volatile __local float *data,
+    volatile __local float *backup, volatile __local int *done, const int warp_size) {
+  int m = A*B-1;
+  int tid = get_local_id(0);
+  int group_id = get_group_id(0);
+
+if(tid < b){
+  for(int gid = group_id; gid < m; gid += get_num_groups(0)) {
+    int next_in_cycle = (gid * A)-m*(gid/B);
+    if (next_in_cycle == gid)
+      continue;
+
+    for(int i = tid; i < b; i += get_local_size(0)){
+      data[i] = input[gid*b+i];
+    }
+    barrier(CLK_LOCAL_MEM_FENCE|CLK_GLOBAL_MEM_FENCE);
+    if (tid == 0){
+      //make sure the read is not cached 
+      done[0] = atom_or(finished+gid, (int)0); 
+    }
+    barrier(CLK_LOCAL_MEM_FENCE|CLK_GLOBAL_MEM_FENCE);
+    for (;done[0] == 0; 
+        next_in_cycle = (next_in_cycle*A)-m*(next_in_cycle/B)) {
+      for(int i = tid; i < b; i += get_local_size(0)){
+        backup[i] = input[next_in_cycle*b+i];
+      }
+      barrier(CLK_LOCAL_MEM_FENCE|CLK_GLOBAL_MEM_FENCE);
+      if (tid == 0) {
+        done[0] = atom_xchg(finished+next_in_cycle, (int)1);
+      }
+      barrier(CLK_LOCAL_MEM_FENCE|CLK_GLOBAL_MEM_FENCE);
+      if (!done[0]) {
+        for(int i = tid; i < b; i += get_local_size(0)){
+          input[next_in_cycle*b+i] = data[i];
+        }
+      }
+      //barrier(CLK_LOCAL_MEM_FENCE|CLK_GLOBAL_MEM_FENCE);
+      for(int i = tid; i < b; i += get_local_size(0)){
+        data[i] = backup[i];
+      }
+      //barrier(CLK_LOCAL_MEM_FENCE|CLK_GLOBAL_MEM_FENCE);
+    }
+  }
+}
+}
+
 // Transformation 100 
 __kernel void transpose_100(__global float *input,
     int A, int B, int b, __global int *finished, volatile __local float *data,
@@ -346,3 +393,22 @@ __kernel void transpose_0100(__global float *input,
 }
 
 #undef P_IPT
+
+// Transformation 100 - Block-centric with shared memory tiling
+__kernel void transpose_100_b(__global float *input,
+    int A, int B, int b, __global int *finished, volatile __local float *data,
+    volatile __local float *backup, int warp_size, volatile __local int *done) {
+    _transpose_100_b(input, A, B, b, finished, data, backup, done, warp_size);
+
+}
+
+// Transformation 0100, or AaBb to ABab - Block-centric with shared memory tiling
+__kernel void transpose_0100_b(__global float *input,
+    int A, int B, int b, __global int *finished, volatile __local float *data,
+    volatile __local float *backup, int warp_size, volatile __local int *done) {
+  // for supporting transformation 0100
+  finished += get_group_id(2) * A * B;
+  input += get_group_id(2) * A * B * b;
+  _transpose_100_b(input, A, B, b, finished, data, backup, done, warp_size);
+}
+

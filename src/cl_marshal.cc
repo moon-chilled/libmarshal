@@ -219,8 +219,13 @@ bool _cl_transpose_0100(cl_command_queue cl_queue,
   free(finished);
   if (err != CL_SUCCESS)
     return true;
+
+  // Original PPoPP'2014
+  //cl::Kernel kernel(marshalprog->program, 
+  //  A==1?"transpose_100":"transpose_0100");
   cl::Kernel kernel(marshalprog->program, 
-    A==1?"transpose_100":"transpose_0100");
+    b<192?(A==1?"transpose_100":"transpose_0100"):(A==1?"transpose_100_b":"transpose_0100_b"));
+
   err = kernel.setArg(0, buffer);
   if (err != CL_SUCCESS)
     return true;
@@ -237,38 +242,60 @@ bool _cl_transpose_0100(cl_command_queue cl_queue,
   if (err != CL_SUCCESS)
     return true;
 
+  // Original InPar'2012
+  //cl::NDRange global(std::min(A*B*b, b*1024)), local(b);
+
   // Shared memory tiling
 #define WARPS 4
 #define WARP_SIZE 32
-  // Virtual warp
+  // Virtual warps
   int v_warp_size;
   if (b <= 4) v_warp_size = 4;
   else if (b > 4 && b <= 24) v_warp_size = 8;
   else if (b > 24 && b <= 48) v_warp_size = 16;
   else v_warp_size = 32;
+  // Block size (if block-centric)
+  int block_size;
+  if (b <= 512) block_size = 128;
+  else if (b > 512 && b <= 1024) block_size = 256;
+  else if (b > 1024 && b <= 1536) block_size = 512;
+  else block_size = 1024;
 
-  err = kernel.setArg(5, b*WARPS*(WARP_SIZE/v_warp_size)*sizeof(cl_float), NULL);
+  err = kernel.setArg(5, b<192?(b*WARPS*(WARP_SIZE/v_warp_size)*sizeof(cl_float)):(b*sizeof(cl_float)), NULL);
   if (err != CL_SUCCESS)
     return true;
-  err = kernel.setArg(6, b*WARPS*(WARP_SIZE/v_warp_size)*sizeof(cl_float), NULL);
+  err = kernel.setArg(6, b<192?(b*WARPS*(WARP_SIZE/v_warp_size)*sizeof(cl_float)):(b*sizeof(cl_float)), NULL);
   if (err != CL_SUCCESS)
     return true;
   err = kernel.setArg(7, v_warp_size);
   if (err != CL_SUCCESS)
     return true;
-  err = kernel.setArg(8, WARPS*(WARP_SIZE/v_warp_size)*sizeof(cl_int), NULL);
+  err = kernel.setArg(8, b<192?(WARPS*(WARP_SIZE/v_warp_size)*sizeof(cl_int)):(sizeof(cl_int)), NULL);
   if (err != CL_SUCCESS)
     return true;
 
-  //cl::NDRange global(std::min(A*B*b, b*1024)), local(b);
-  // Shared memory tiling
-  cl::NDRange global(std::min(a*B*WARP_SIZE, 1024*WARP_SIZE), WARPS, A),
-    local(WARP_SIZE, WARPS, 1);
+  // NDRange and kernel call
+  if (b < 192){
+    std::cerr << "vwarp = " << v_warp_size << "\t"; // Print v_warp_size
+    // NDRange - PPoPP'2014 + use of virtual warps
+    cl::NDRange global(std::min(a*B*WARP_SIZE, 1024*WARP_SIZE), WARPS, A),
+      local(WARP_SIZE, WARPS, 1);
+    err = queue.enqueueNDRangeKernel(kernel, cl::NullRange, global, local,
+      NULL, prof.GetEvent());
+    if (err != CL_SUCCESS)
+      return true;
+  }
+  else{
+    std::cerr << "blocksize =  " << block_size << "\t"; // Print block size
+    // NDRange - Block-centric using shared memory tiling
+    cl::NDRange global(std::min(a*B*block_size, 1024*block_size), 1, A),
+      local(block_size, 1, 1);
+    err = queue.enqueueNDRangeKernel(kernel, cl::NullRange, global, local,
+      NULL, prof.GetEvent());
+    if (err != CL_SUCCESS)
+      return true;
+  }
 
-  err = queue.enqueueNDRangeKernel(kernel, cl::NullRange, global, local,
-    NULL, prof.GetEvent());
-  if (err != CL_SUCCESS)
-    return true;
 #ifdef LIBMARSHAL_OCL_PROFILE
   if (elapsed_time) {
     *elapsed_time += prof.Report();
@@ -333,10 +360,14 @@ extern "C" bool cl_transpose(cl_command_queue queue, cl_mem src, int A, int a,
         return r1;
       }
       bool r2;
-      if (step2.IsFeasible())
+      if (step2.IsFeasible()){
+        std::cerr << "010_BS\t";
         r2 = cl_transpose_010_bs(queue, src, B*A, a, b, &et);
-      else
+      }
+      else{
+        std::cerr << "010_PTTWAC\t";
         r2 = cl_transpose_010_pttwac(queue, src, B*A, a, b, &et, R);
+      }
       if (r2) {
         std::cerr << "cl_transpose: step 2.2 failed\n";
         return r2;
