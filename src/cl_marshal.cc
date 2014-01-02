@@ -112,33 +112,60 @@ extern "C" bool cl_transpose_010_bs(cl_command_queue cl_queue,
   MarshalProg *marshalprog = MarshalProgSingleton::Instance();
   marshalprog->Init(context());
 
-  cl::Kernel kernel(marshalprog->program, 
-      IS_POW2(a) ? "BS_marshal_power2":"BS_marshal");
+  int sh_sz = a*B;
+  cl::Kernel kernel(marshalprog->program,
+      sh_sz<224 ? "BS_marshal_vw" : (IS_POW2(a) ? "BS_marshal_power2":"BS_marshal"));
+      //sh_sz<224 ? "BS_marshal_vw" : "BS_marshal");
   if (CL_SUCCESS != kernel.setArg(0, buffer))
     return true;
   cl_int err = kernel.setArg(1,
-      IS_POW2(a)? count_zero_bits(a) : a);
+      sh_sz<224 ? a: (IS_POW2(a)? count_zero_bits(a) : a));
+      //a);
   if (err != CL_SUCCESS)
     return true;
   err = kernel.setArg(2, B);
-  err |= kernel.setArg(3, B*(a+1)*sizeof(cl_float), NULL);
   if (err != CL_SUCCESS)
     return true;
 
   // Original - InPar'2012
   //cl::NDRange global(A*NR_THREADS), local(NR_THREADS);
   int nr_threads;
-  int sh_sz = a*B;
-  if (sh_sz <= 1024) nr_threads = 128;
-  else if (sh_sz > 1024 && sh_sz <= 2048) nr_threads = 256;
-  else nr_threads = 512;
-  std::cerr << "nr_threads = " << nr_threads << "\t"; // Print nr_threads
-  cl::NDRange global(A*nr_threads), local(nr_threads);
+  int warp_size;
+  // Block size (if block-centric)
+  if (sh_sz <= 768) nr_threads = 128;
+  else if (sh_sz > 768 && sh_sz <= 1792) nr_threads = 256;
+  else if (sh_sz > 1792 && sh_sz <= 3072) nr_threads = 512;
+  else nr_threads = 1024;
+  // Virtual warps
+  if (sh_sz < 4) warp_size = 1;
+  else if (sh_sz >= 4 && sh_sz < 8) warp_size = 2;
+  else if (sh_sz >= 8 && sh_sz < 16) warp_size = 4;
+  else if (sh_sz >= 16 && sh_sz < 32) warp_size = 8;
+  else if (sh_sz >= 32 && sh_sz < 96) warp_size = 16;
+  else warp_size = 32;
 
-  err = queue.enqueueNDRangeKernel(kernel, cl::NullRange, global, local, NULL,
-    prof.GetEvent());
+  int warps = nr_threads / warp_size;
+  err = kernel.setArg(3, sh_sz<224?(warps*B*(a+1)*sizeof(cl_float)):(B*(a+1)*sizeof(cl_float)), NULL);
+  err |= kernel.setArg(4, warp_size);
   if (err != CL_SUCCESS)
     return true;
+  if (sh_sz < 224){
+    std::cerr << "nr_threads_vwarp = " << warp_size << "\t"; // Print warp_size
+    cl::NDRange global((A/warps+1)*nr_threads), local(nr_threads);
+    err = queue.enqueueNDRangeKernel(kernel, cl::NullRange, global, local, NULL,
+      prof.GetEvent());
+    if (err != CL_SUCCESS)
+      return true;
+  }
+  else{
+    std::cerr << "nr_threads =  " << nr_threads << "\t"; // Print nr_threads
+    cl::NDRange global(A*nr_threads), local(nr_threads);
+    err = queue.enqueueNDRangeKernel(kernel, cl::NullRange, global, local, NULL,
+      prof.GetEvent());
+    if (err != CL_SUCCESS)
+      return true;
+  }
+
 #ifdef LIBMARSHAL_OCL_PROFILE
   if (elapsed_time) {
     *elapsed_time += prof.Report();
@@ -359,20 +386,22 @@ extern "C" bool cl_transpose(cl_command_queue queue, cl_mem src, int A, int a,
     // AaBb to BAab (step 1)
     // to BAba (step 2)
     // to BbAa (step 3)
-    T0100_PTTWAC step1(1, A*a, B, b, context());
-    T010_BS step2(a, b, context());
-    T010_PTTWAC step2p(a, b, context());
-    T0100_PTTWAC step3(B, A, b, a, context());
+    //T0100_PTTWAC step1(1, A*a, B, b, context());
+    //T010_BS step2(a, b, context());
+    //T010_PTTWAC step2p(a, b, context());
+    //T0100_PTTWAC step3(B, A, b, a, context());
     //if (step1.IsFeasible() && (step2.IsFeasible()||step2p.IsFeasible()) 
     //    && step3.IsFeasible()) {
-    if (((a*b+31)/32) + ((((a*b+31)/32)>>5)*P) <= 12288 - 512 && b < (12288 - 512)/2 && a < (12288 - 512)/2){
+    //if (((a*b+31)/32) + ((((a*b+31)/32)>>5)*P) <= 12288 - 512 && b < (12288 - 512)/2 && a < (12288 - 512)/2){
+    if (((a*b+31)/32) + ((((a*b+31)/32)>>5)*P) <= 12288 && b < (12288 - 64)/2 && a < (12288 - 64)/2){
       bool r1 = cl_transpose_100(queue, src, A*a, B, b, &et);
       if (r1) {
         std::cerr << "cl_transpose: step 2.1 failed\n";
         return r1;
       }
       bool r2;
-      if (step2.IsFeasible()){
+      //if (step2.IsFeasible()){
+      if (b*(a+1) <= 12288){
         std::cerr << "010_BS\t";
         r2 = cl_transpose_010_bs(queue, src, B*A, a, b, &et);
       }

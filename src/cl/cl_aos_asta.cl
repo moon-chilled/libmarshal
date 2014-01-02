@@ -23,6 +23,7 @@
 #pragma OPENCL EXTENSION cl_khr_global_int32_base_atomics : enable
 #pragma OPENCL EXTENSION cl_khr_global_int32_extended_atomics : enable
 
+#define WARP_SIZE 32
 
 __kernel void mymemset (__global float *input) {
   input[get_global_id(0)] = 0.0f;
@@ -34,7 +35,7 @@ __kernel void mymemset (__global float *input) {
 // a[height/tile_size][width][tile_size]
 // Launch height/tile_size blocks of tile_size*width threads
 __kernel void BS_marshal (__global float *input, int tile_size, int width,
-  __local float *store) {
+  __local float *store, int warp_size) {
   int tidx = get_local_id(0);
   int m = width*tile_size-1;
   int bid = get_group_id(0);
@@ -48,10 +49,66 @@ __kernel void BS_marshal (__global float *input, int tile_size, int width,
     input[i] = store[i];
   }
 }
+
+__kernel void BS_marshal_vw (__global float *input, int tile_size, int width,
+  volatile __local float *store, int warp_size) {
+  int m = width*tile_size-1;
+  int group_id, tidx, warp_id, warps_group;
+
+  // Recalculate IDs if virtual warp is used
+  if (warp_size == 32){
+    tidx = get_local_id(0) & 31;
+    group_id = get_group_id(0);
+    warp_id = get_local_id(0) >> 5;
+    warps_group = get_local_size(0) >> 5;
+  }
+  else if (warp_size == 16){
+    tidx = get_local_id(0) & 15;
+    group_id = get_group_id(0);
+    warp_id = get_local_id(0) >> 4;
+    warps_group = get_local_size(0) >> 4;
+  }
+  else if (warp_size == 8){
+    tidx = get_local_id(0) & 7;
+    group_id = get_group_id(0);
+    warp_id = get_local_id(0) >> 3;
+    warps_group = get_local_size(0) >> 3;
+  }
+  else if (warp_size == 4){
+    tidx = get_local_id(0) & 3;
+    group_id = get_group_id(0);
+    warp_id = get_local_id(0) >> 2;
+    warps_group = get_local_size(0) >> 2;
+  }
+  else if (warp_size == 2){
+    tidx = get_local_id(0) & 1;
+    group_id = get_group_id(0);
+    warp_id = get_local_id(0) >> 1;
+    warps_group = get_local_size(0) >> 1;
+  }
+  else if (warp_size == 1){
+    tidx = get_local_id(0) & 0;
+    group_id = get_group_id(0);
+    warp_id = get_local_id(0) >> 0;
+    warps_group = get_local_size(0) >> 0;
+  }
+
+  int bid = group_id * warps_group + warp_id;
+  input += tile_size*width*bid;
+  store += (tile_size+1)*width*warp_id;
+  for (int i = tidx; i < tile_size*width; i+=warp_size) {
+    int next = (i * tile_size)-m*(i/width);
+    store[next] = input[i];
+  }
+  for (int i = tidx; i < tile_size*width; i+=warp_size) {
+    input[i] = store[i];
+  }
+}
+
 // Optimized version for tile size == power of 2
 // Padding shared memory is necessary to reduce conflicts
 __kernel void BS_marshal_power2 (__global float *input, int lg2_tile_size, int width,
-  __local float *store) {
+  __local float *store, int warp_size) {
 #define SHMT lg2_tile_size 
   int tidx = get_local_id(0);
   int m = (width<<SHMT)-1;
@@ -209,7 +266,6 @@ __kernel void transpose_010_PTTWAC(__global float *input, int A,
 // Assumes:
 //  get_local_size(0) == wavefront size;
 //  get_local_size(1) == number of warps
-#define WARP_SIZE 32
 //#define WARPS 6
 #define P_IPT 0
 void _transpose_100(__global float *input,
@@ -251,6 +307,13 @@ void _transpose_100(__global float *input,
     int vwarp_id = get_local_id(0) >> 1;
     warp_id = warp_id * vwarps_in_warp + vwarp_id;
   }
+  else if (warp_size == 1){
+    tid = get_local_id(0) & 0;
+    int vwarps_in_warp = WARP_SIZE / warp_size;
+    warps_group = warps_group * vwarps_in_warp;
+    int vwarp_id = get_local_id(0) >> 0;
+    warp_id = warp_id * vwarps_in_warp + vwarp_id;
+  }
 
 if(tid < b){
   for(int gid = group_id * warps_group + warp_id; gid < m;
@@ -287,12 +350,18 @@ if(tid < b){
 
 #else
 
+#define N 16
     for(int i = tid; i < b; i += warp_size){
       data[warp_id*b+i] = input[gid*b+i];
     }
     if (tid == 0){
       //make sure the read is not cached 
-      done[warp_id] = atom_or(finished+gid, (int)0); 
+      //done[warp_id] = atom_or(finished+gid, (int)0); 
+      // Narrowing
+      unsigned int flag_id = gid / N;
+      unsigned int mask = 1 << (gid % N);
+      unsigned int flag_read = atom_or(finished+flag_id, (int)0); //make sure the read is not cached 
+      done[warp_id] = flag_read & mask;
     }
 
     for (;done[warp_id] == 0; 
@@ -301,7 +370,12 @@ if(tid < b){
         backup[warp_id*b+i] = input[next_in_cycle*b+i];
       }
       if (tid == 0) {
-        done[warp_id] = atom_xchg(finished+next_in_cycle, (int)1);
+        //done[warp_id] = atom_xchg(finished+next_in_cycle, (int)1);
+        // Narrowing
+        unsigned int flag_id = next_in_cycle / N;
+        unsigned int mask = 1 << (next_in_cycle % N);
+        unsigned int flag_read = atom_or(finished+flag_id, mask); //make sure the read is not cached 
+        done[warp_id]  = flag_read & mask;
       }
       if (!done[warp_id]) {
         for(int i = tid; i < b; i += warp_size){

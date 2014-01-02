@@ -139,9 +139,9 @@ void cpu_soa_asta(float *src, float *dst, int height, int width,
 TEST_F(libmarshal_cl_test, bug537) {
   int ws[6] = {40, 62, 197, 215, 59, 39};
   int hs[6] = {11948, 17281, 35588, 44609, 90449, 49152};
-  for (int i = 0; i < 6; i++)
-  for (int t = 48; t <= 4096; t*=2) {
-  //for (int t = 16; t <= 64; t*=2) {
+  for (int i = 0; i < 2; i++)
+  //for (int t = 48; t <= 4096; t*=2) {
+  for (int t = 1; t <= 64; t*=2) {
     int w = ws[i];
     int h = (hs[i]+t-1)/t*t;
 
@@ -199,7 +199,7 @@ TEST_F(libmarshal_cl_test, bug536) {
     int w = ws[i];
     int h = (hs[i]+t-1)/t*t;
 
-#define MAX_MEM 4096 //12288
+#define MAX_MEM 12288 //6144 //4096
 #define P 1
     bool r;
     for(int S_f = 1; S_f <= 32; S_f *=2){ // (Use S_f <= 1 for testing IPT) - S_f = Spreading factor
@@ -207,7 +207,7 @@ TEST_F(libmarshal_cl_test, bug536) {
       int sh_sz2 = S_f * ((t*w+31)/32);
       sh_sz2 += (sh_sz2 >> 5) * P;
 
-      printf("w=%d\tt=%d\tS_f=%d\t", w, t, S_f);
+      printf("w=%d\tt=%d\tw*t=%d\tS_f=%d\t", w, t, w*t, S_f);
       printf("P=%d\t%d\t%d\t", P, (int)(5-log2(S_f)), sh_sz2);
 
       if(sh_sz2 > MAX_MEM) printf("\n");
@@ -262,10 +262,12 @@ TEST_F(libmarshal_cl_test, bug536) {
 }
 
 TEST_F(libmarshal_cl_test, bug533) {
-  int w = 20;
-//for (int w = 16; w <= 64; w++){
-  for (int t=16; t<34; t++) {
+  //int w = 95; //20;
+for (int w = 12; w <= 48; w*=2){ //3-48
+  //for (int t=16; t<34; t++) {
+  for (int t=4; t<=16; t++) { //2-128
     int h = (100*100*130+t-1)/t*t;
+    std::cerr << "A = " << h/t << ", a = " << t << ", B = " << w << ", w*t = " << w*t << "\t";
     float *src = (float*)malloc(sizeof(float)*h*w);
     float *dst = (float*)malloc(sizeof(float)*h*w);
     float *dst_gpu = (float*)malloc(sizeof(float)*h*w);
@@ -284,14 +286,14 @@ TEST_F(libmarshal_cl_test, bug533) {
     EXPECT_EQ(oldqref, GetQRef());
     ASSERT_EQ(false, r);
     ASSERT_EQ(queue_->enqueueReadBuffer(d_dst, CL_TRUE, 0, sizeof(float)*h*w,
-	  dst_gpu), CL_SUCCESS);
+    	  dst_gpu), CL_SUCCESS);
     EXPECT_EQ(0, compare_output(dst_gpu, dst, h*w));
 
     free(src);
     free(dst);
     free(dst_gpu);
   }
-//}
+}
 }
 
 void tile(int x) {
@@ -309,11 +311,31 @@ void tile(int x) {
 TEST_F(libmarshal_cl_test, full) {
   // dataset size from http://www8.cs.umu.se/research/uminf/reports/2009/001/part1.pdf
   // figure 12
-  int ws[] = {1800, 2500, 3200, 3900, 5100, 7200};
+#if 1
+  // For skinny matrices
+  //const int h_max = 1048576; const int h_min = 4096; //2^22 - 2^12
+  //const int w_max = 64; const int w_min = 2;
+  // For general matrices
+  //const int h_max = 6144; const int h_min = 1024; //2^13 - 2^10
+  //const int w_max = 4096; const int w_min = 1536;
+  const int h_max = 19999; const int h_min = 999; //Tests in Catanzaro's paper
+  const int w_max = 19999; const int w_min = 999;
+
+  for (int i = 0; i < 2; i++){
+  // Generate random dimensions
+  srand(time(NULL));
+  int h = rand() % (h_max-h_min+1) + h_min;
+  srand(2*time(NULL));
+  int w = rand() % (w_max-w_min+1) + w_min;
+  std::cerr << "" << h << "," << w << "\n";
+#endif
+#if 0 
+  int ws[] = {1800, 2500, 3200, 3900, 5100, 7200}; //Matrix sizes in PPoPP2014 paper
   int hs[] = {7200, 5100, 4000, 3300, 2500, 1800};
   for (int n = 0; n < 1; n++) {
   int w = ws[n];
   int h = hs[n];
+#endif
 
   float *src = (float*)malloc(sizeof(float)*h*w);
   float *dst = (float*)malloc(sizeof(float)*h*w);
@@ -326,6 +348,7 @@ TEST_F(libmarshal_cl_test, full) {
   std::vector<int> hoptions = hf.get_tile_sizes();
   std::vector<int> woptions = wf.get_tile_sizes();
   for (int i = 0 ; i < hoptions.size(); i++) {
+  //for (int i = hoptions.size()-1 ; i < hoptions.size(); i++) {
   //for (int i = 0; i < 2; i++) {
     int A = h/hoptions[i], a = hoptions[i];
     for (int j = 0; j < woptions.size(); j++) {
@@ -348,13 +371,14 @@ TEST_F(libmarshal_cl_test, full) {
       //r = cl_transpose((*queue_)(), d_dst(), A, a, B, b, 1, NULL); 
 
       // Calculate spreading factor
-      int S_f = (MAX_MEM-512) / (((a*b+31)/32) + ((((a*b+31)/32)>>5)*P));
+      //int S_f = (MAX_MEM-512) / (((a*b+31)/32) + ((((a*b+31)/32)>>5)*P));
+      int S_f = MAX_MEM / (((a*b+31)/32) + ((((a*b+31)/32)>>5)*P));
       std::cerr << "S_f = " << S_f << ",";
       if (S_f < 2) S_f = 1;
       else if (S_f >=2 && S_f < 4) S_f = 2;
       else if (S_f >=4 && S_f < 8) S_f = 4;
       else if (S_f >=8 && S_f < 16) S_f = 8;
-      else if (S_f >=16 && S_f < 32) S_f = 16;
+      else if (S_f >=16 && S_f < 32) S_f = 8; //16;
       else S_f = 32; // BS will be used
       std::cerr << "" << S_f << ",\t";
 
