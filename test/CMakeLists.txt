@@ -9,4 +9,4 @@ ENDIF (CUDA_FOUND AND CUDA_MARSHAL)
 #OpenCL Tests
 ADD_EXECUTABLE (cl_unittest cl_unittest.cc)
 TARGET_LINK_LIBRARIES (cl_unittest 
-    gtest gtest_main cl_marshal ${OPENCL_LIBRARIES})
+    gtest gtest_main cl_marshal ${OPENCL_LIBRARIES} gsl gslcblas)

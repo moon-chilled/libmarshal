@@ -6,6 +6,8 @@
 #include <math.h>
 #include "cl_marshal.h"
 #include "plan.hpp"
+#include "/usr/include/gsl/gsl_sort.h"
+
 namespace {
 class libmarshal_cl_test : public ::testing::Test {
  public:
@@ -321,18 +323,18 @@ TEST_F(libmarshal_cl_test, full) {
   const int h_max = 19999; const int h_min = 999; //Tests in Catanzaro's paper
   const int w_max = 19999; const int w_min = 999;
 
-  for (int i = 0; i < 2; i++){
+  for (int i = 0; i < 10; i++){
   // Generate random dimensions
   srand(time(NULL));
   int h = rand() % (h_max-h_min+1) + h_min;
   srand(2*time(NULL));
   int w = rand() % (w_max-w_min+1) + w_min;
-  std::cerr << "" << h << "," << w << "\n";
+  std::cerr << "" << h << "," << w << "\t";
 #endif
 #if 0 
   int ws[] = {1800, 2500, 3200, 3900, 5100, 7200}; //Matrix sizes in PPoPP2014 paper
   int hs[] = {7200, 5100, 4000, 3300, 2500, 1800};
-  for (int n = 0; n < 1; n++) {
+  for (int n = 0; n < 6; n++) {
   int w = ws[n];
   int h = hs[n];
 #endif
@@ -347,12 +349,45 @@ TEST_F(libmarshal_cl_test, full) {
   wf.tiling_options();
   std::vector<int> hoptions = hf.get_tile_sizes();
   std::vector<int> woptions = wf.get_tile_sizes();
-  for (int i = 0 ; i < hoptions.size(); i++) {
-  //for (int i = hoptions.size()-1 ; i < hoptions.size(); i++) {
-  //for (int i = 0; i < 2; i++) {
-    int A = h/hoptions[i], a = hoptions[i];
-    for (int j = 0; j < woptions.size(); j++) {
-      int B = w/woptions[j], b = woptions[j];
+
+  // Sort factors
+  //for(int x=0; x<hoptions.size(); x++) printf("%d ", hoptions[x]);
+  //printf("\n");
+  size_t hf_sorted[hoptions.size()];
+  size_t wf_sorted[woptions.size()];
+  gsl_sort_int_index((size_t *)hf_sorted, &hoptions[0], 1, hoptions.size());
+  for(int x=0; x<hoptions.size(); x++) printf("%d ", hoptions[hf_sorted[x]]);
+  printf("\n");
+  gsl_sort_int_index((size_t *)wf_sorted, &woptions[0], 1, woptions.size());
+  for(int x=0; x<woptions.size(); x++) printf("%d ", woptions[wf_sorted[x]]);
+  printf("\n");
+
+  //for (int i = 0 ; i < hoptions.size(); i++) {
+    //int A = h/hoptions[i], a = hoptions[i];
+    //for (int j = 0; j < woptions.size(); j++) {
+      //int B = w/woptions[j], b = woptions[j];
+  int A, a, B, b;
+  int i = 0;
+  if (hoptions.size() == 1){
+    a = 1; A = h;
+  }
+  else{
+    while (hoptions[hf_sorted[i]] <=110){ //72
+      i++;
+    }
+    a = hoptions[hf_sorted[i-1]]; A = h/a;
+  }
+  i = 0;
+  if (woptions.size() == 1){
+    b = 1; B = w;
+  }
+  else{
+    while (woptions[wf_sorted[i]] <=110){ //72
+      i++;
+    }
+    b = woptions[wf_sorted[i-1]]; B = w/b;
+  }
+
       cl_int err;
       cl::Buffer d_dst = cl::Buffer(*context_, CL_MEM_READ_WRITE,
           sizeof(float)*h*w, NULL, &err);
@@ -396,8 +431,8 @@ TEST_F(libmarshal_cl_test, full) {
       ASSERT_EQ(queue_->enqueueReadBuffer(d_dst, CL_TRUE, 0, sizeof(float)*h*w,
             dst_gpu), CL_SUCCESS);
       EXPECT_EQ(0, compare_output(dst_gpu, src, h*w));
-    }
-  }
+  //  }
+  //}
   free(src);
   free(dst);
   free(dst_gpu);

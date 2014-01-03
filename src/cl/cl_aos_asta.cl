@@ -410,7 +410,12 @@ if(tid < b){
     barrier(CLK_LOCAL_MEM_FENCE|CLK_GLOBAL_MEM_FENCE);
     if (tid == 0){
       //make sure the read is not cached 
-      done[0] = atom_or(finished+gid, (int)0); 
+      //done[0] = atom_or(finished+gid, (int)0); 
+      // Narrowing
+      unsigned int flag_id = gid / N;
+      unsigned int mask = 1 << (gid % N);
+      unsigned int flag_read = atom_or(finished+flag_id, (int)0); //make sure the read is not cached 
+      done[0] = flag_read & mask;
     }
     barrier(CLK_LOCAL_MEM_FENCE|CLK_GLOBAL_MEM_FENCE);
     for (;done[0] == 0; 
@@ -420,7 +425,12 @@ if(tid < b){
       }
       barrier(CLK_LOCAL_MEM_FENCE|CLK_GLOBAL_MEM_FENCE);
       if (tid == 0) {
-        done[0] = atom_xchg(finished+next_in_cycle, (int)1);
+        //done[0] = atom_xchg(finished+next_in_cycle, (int)1);
+        // Narrowing
+        unsigned int flag_id = next_in_cycle / N;
+        unsigned int mask = 1 << (next_in_cycle % N);
+        unsigned int flag_read = atom_or(finished+flag_id, mask); //make sure the read is not cached 
+        done[0]  = flag_read & mask;
       }
       barrier(CLK_LOCAL_MEM_FENCE|CLK_GLOBAL_MEM_FENCE);
       if (!done[0]) {
