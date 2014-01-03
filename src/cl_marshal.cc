@@ -127,8 +127,7 @@ extern "C" bool cl_transpose_010_bs(cl_command_queue cl_queue,
   if (err != CL_SUCCESS)
     return true;
 
-  // Original - InPar'2012
-  //cl::NDRange global(A*NR_THREADS), local(NR_THREADS);
+  // Select work-group size and virtual-SIMD-unit size
   int nr_threads;
   int warp_size;
   // Block size (if block-centric)
@@ -147,11 +146,15 @@ extern "C" bool cl_transpose_010_bs(cl_command_queue cl_queue,
   int warps = nr_threads / warp_size;
   err = kernel.setArg(3, sh_sz<224?(warps*B*(a+1)*sizeof(cl_float)):(B*(a+1)*sizeof(cl_float)), NULL);
   err |= kernel.setArg(4, warp_size);
+  err |= kernel.setArg(5, A);
   if (err != CL_SUCCESS)
     return true;
+
+  // NDRange and kernel call
   if (sh_sz < 224){
     std::cerr << "nr_threads_vwarp = " << warp_size << "\t"; // Print warp_size
-    cl::NDRange global((A/warps+1)*nr_threads), local(nr_threads);
+    //cl::NDRange global((A/warps+1)*nr_threads), local(nr_threads);
+    cl::NDRange global(std::min((A/warps+1)*nr_threads, (8192/warps+1)*nr_threads)), local(nr_threads);
     err = queue.enqueueNDRangeKernel(kernel, cl::NullRange, global, local, NULL,
       prof.GetEvent());
     if (err != CL_SUCCESS)
@@ -159,7 +162,8 @@ extern "C" bool cl_transpose_010_bs(cl_command_queue cl_queue,
   }
   else{
     std::cerr << "nr_threads =  " << nr_threads << "\t"; // Print nr_threads
-    cl::NDRange global(A*nr_threads), local(nr_threads);
+    //cl::NDRange global(A*nr_threads), local(nr_threads);
+    cl::NDRange global(std::min(A*nr_threads, 8192*nr_threads)), local(nr_threads);
     err = queue.enqueueNDRangeKernel(kernel, cl::NullRange, global, local, NULL,
       prof.GetEvent());
     if (err != CL_SUCCESS)
@@ -178,7 +182,7 @@ extern "C" bool cl_transpose_010_bs(cl_command_queue cl_queue,
 
 // Transformation 010, or AaB to ABa
 extern "C" bool cl_transpose_010_pttwac(cl_command_queue cl_queue,
-    cl_mem src, int A, int a, int B, cl_ulong *elapsed_time, int R) {
+    cl_mem src, int A, int a, int B, cl_ulong *elapsed_time, int R, int P) {
   // Standard preparation of invoking a kernel
   cl::CommandQueue queue = cl::CommandQueue(cl_queue);
   Profiling prof(queue, "AOS-ASTA PTTWAC");
@@ -201,10 +205,8 @@ extern "C" bool cl_transpose_010_pttwac(cl_command_queue cl_queue,
   if (err != CL_SUCCESS)
     return true;
 
-#define P 1
   int sh_sz = R * ((a*B+31)/32);
   sh_sz += (sh_sz >> 5) * P;
-  //err = kernel.setArg(4, ((a*B+31)/32)*sizeof(cl_uint), NULL);
   err = kernel.setArg(4, sh_sz*sizeof(cl_uint), NULL);
   if (err != CL_SUCCESS)
     return true;
@@ -214,7 +216,11 @@ extern "C" bool cl_transpose_010_pttwac(cl_command_queue cl_queue,
   err = kernel.setArg(6, (int)(5 - log2(R)));
   if (err != CL_SUCCESS)
     return true;
+  err = kernel.setArg(7, P);
+  if (err != CL_SUCCESS)
+    return true;
 
+  // NDRange and kernel call
   std::cerr << "NR_THREADS = " << NR_THREADS << "\t"; // Print nr_threads
   cl::NDRange global(A*NR_THREADS), local(NR_THREADS);
   err = queue.enqueueNDRangeKernel(kernel, cl::NullRange, global, local, NULL,
@@ -258,9 +264,6 @@ bool _cl_transpose_0100(cl_command_queue cl_queue,
   if (err != CL_SUCCESS)
     return true;
 
-  // Original PPoPP'2014
-  //cl::Kernel kernel(marshalprog->program, 
-  //  A==1?"transpose_100":"transpose_0100");
   cl::Kernel kernel(marshalprog->program, 
     b<192?(A==1?"transpose_100":"transpose_0100"):(A==1?"transpose_100_b":"transpose_0100_b"));
 
@@ -280,10 +283,8 @@ bool _cl_transpose_0100(cl_command_queue cl_queue,
   if (err != CL_SUCCESS)
     return true;
 
-  // Original InPar'2012
-  //cl::NDRange global(std::min(A*B*b, b*1024)), local(b);
-
-  // Shared memory tiling
+  // Select work-group size and virtual-SIMD-unit size
+  // This version uses shared memory tiling
 #define WARPS 4
 #define WARP_SIZE 32
   // Virtual warps
@@ -363,7 +364,7 @@ extern "C" bool cl_transpose(cl_command_queue queue, cl_mem src, int A, int a,
       if (step1.IsFeasible())
         r1 = cl_transpose_010_bs(queue, src, A, a, B*b, &et);
       else
-        r1 = cl_transpose_010_pttwac(queue, src, A, a, B*b, &et, R);
+        r1 = cl_transpose_010_pttwac(queue, src, A, a, B*b, &et, R, 1);
       if (r1) {
         std::cerr << "cl_transpose: step 1 failed\n";
         return r1;
@@ -393,7 +394,7 @@ extern "C" bool cl_transpose(cl_command_queue queue, cl_mem src, int A, int a,
     //if (step1.IsFeasible() && (step2.IsFeasible()||step2p.IsFeasible()) 
     //    && step3.IsFeasible()) {
     //if (((a*b+31)/32) + ((((a*b+31)/32)>>5)*P) <= 12288 - 512 && b < (12288 - 512)/2 && a < (12288 - 512)/2){
-    if (((a*b+31)/32) + ((((a*b+31)/32)>>5)*P) <= 12288 && b < (12288 - 64)/2 && a < (12288 - 64)/2){
+    if (((a*b+31)/32) + ((((a*b+31)/32)>>5)*1) <= 12288 && b < (12288 - 64)/2 && a < (12288 - 64)/2){
       bool r1 = cl_transpose_100(queue, src, A*a, B, b, &et);
       if (r1) {
         std::cerr << "cl_transpose: step 2.1 failed\n";
@@ -407,7 +408,7 @@ extern "C" bool cl_transpose(cl_command_queue queue, cl_mem src, int A, int a,
       }
       else{
         std::cerr << "010_PTTWAC\t";
-        r2 = cl_transpose_010_pttwac(queue, src, B*A, a, b, &et, R);
+        r2 = cl_transpose_010_pttwac(queue, src, B*A, a, b, &et, R, 1);
       }
       if (r2) {
         std::cerr << "cl_transpose: step 2.2 failed\n";
@@ -449,7 +450,7 @@ extern "C" bool cl_transpose(cl_command_queue queue, cl_mem src, int A, int a,
       if (step2.IsFeasible())
         r2 = cl_transpose_010_bs(queue, src, B*A, a, b, &et);
       else
-        r2 = cl_transpose_010_pttwac(queue, src, B*A, a, b, &et, R);
+        r2 = cl_transpose_010_pttwac(queue, src, B*A, a, b, &et, R, 1);
       if (r2) {
         std::cerr << "cl_transpose: step 4.2 failed\n";
         return r2;
@@ -509,18 +510,19 @@ extern "C" bool cl_aos_asta_bs(cl_command_queue cl_queue,
 
 // Transformation 010, or AaB to ABa
 extern "C" bool cl_aos_asta_pttwac(cl_command_queue cl_queue,
-    cl_mem src, int height, int width, int tile_size, int R) {
+    cl_mem src, int height, int width, int tile_size, int R, int P) {
   assert ((height/tile_size)*tile_size == height);
   return cl_transpose_010_pttwac(cl_queue, src, height/tile_size/*A*/, 
     tile_size /*a*/,
     width /*B*/,
     NULL,
-    R);
+    R,
+    P);
 }
 
 extern "C" bool cl_aos_asta(cl_command_queue queue, cl_mem src, int height,
   int width, int tile_size, int R) {
   return cl_aos_asta_bs(queue, src, height, width, tile_size) &&
-    cl_aos_asta_pttwac(queue, src, height, width, tile_size, R);
+    cl_aos_asta_pttwac(queue, src, height, width, tile_size, R, 1);
 }
 

@@ -35,10 +35,12 @@ __kernel void mymemset (__global float *input) {
 // a[height/tile_size][width][tile_size]
 // Launch height/tile_size blocks of tile_size*width threads
 __kernel void BS_marshal (__global float *input, int tile_size, int width,
-  __local float *store, int warp_size) {
+  __local float *store, int warp_size, int A) {
   int tidx = get_local_id(0);
   int m = width*tile_size-1;
   int bid = get_group_id(0);
+#define ORIG 0
+#if ORIG
   input += tile_size*width*bid;
   for (int i = tidx; i < tile_size*width; i+=get_local_size(0)) {
     int next = (i * tile_size)-m*(i/width);
@@ -48,13 +50,28 @@ __kernel void BS_marshal (__global float *input, int tile_size, int width,
   for (int i = tidx; i < tile_size*width; i+=get_local_size(0)) {
     input[i] = store[i];
   }
+#else
+  input += tile_size*width*bid;
+  for (int j = bid; j < A; j += get_num_groups(0)){
+    for (int i = tidx; i < tile_size*width; i+=get_local_size(0)) {
+      int next = (i * tile_size)-m*(i/width);
+      store[next] = input[i];
+    }
+    barrier(CLK_LOCAL_MEM_FENCE);
+    for (int i = tidx; i < tile_size*width; i+=get_local_size(0)) {
+      input[i] = store[i];
+    }
+    barrier(CLK_LOCAL_MEM_FENCE);
+    input += tile_size*width*get_num_groups(0);
+  }
+#endif
 }
 
+// Version with virtual-SIMD-units
 __kernel void BS_marshal_vw (__global float *input, int tile_size, int width,
-  volatile __local float *store, int warp_size) {
+  volatile __local float *store, int warp_size, int A) {
   int m = width*tile_size-1;
   int group_id, tidx, warp_id, warps_group;
-
   // Recalculate IDs if virtual warp is used
   if (warp_size == 32){
     tidx = get_local_id(0) & 31;
@@ -92,8 +109,8 @@ __kernel void BS_marshal_vw (__global float *input, int tile_size, int width,
     warp_id = get_local_id(0) >> 0;
     warps_group = get_local_size(0) >> 0;
   }
-
   int bid = group_id * warps_group + warp_id;
+#if ORIG
   input += tile_size*width*bid;
   store += (tile_size+1)*width*warp_id;
   for (int i = tidx; i < tile_size*width; i+=warp_size) {
@@ -103,43 +120,71 @@ __kernel void BS_marshal_vw (__global float *input, int tile_size, int width,
   for (int i = tidx; i < tile_size*width; i+=warp_size) {
     input[i] = store[i];
   }
+#else
+  input += tile_size*width*bid;
+  store += (tile_size+1)*width*warp_id;
+  for (int j = bid; j < A; j += get_num_groups(0)*warps_group){
+    for (int i = tidx; i < tile_size*width; i+=warp_size) {
+      int next = (i * tile_size)-m*(i/width);
+      store[next] = input[i];
+    }
+    for (int i = tidx; i < tile_size*width; i+=warp_size) {
+      input[i] = store[i];
+    }
+    input += tile_size*width*get_num_groups(0)*warps_group;
+  }
+#endif
 }
 
 // Optimized version for tile size == power of 2
 // Padding shared memory is necessary to reduce conflicts
 __kernel void BS_marshal_power2 (__global float *input, int lg2_tile_size, int width,
-  __local float *store, int warp_size) {
+  __local float *store, int warp_size, int A) {
 #define SHMT lg2_tile_size 
+#define PAD(x) ((x)+((x)>>SHMT))
   int tidx = get_local_id(0);
   int m = (width<<SHMT)-1;
   int bid = get_group_id(0);
+#if ORIG
   input += ((width*bid)<<SHMT); //tile_size*width*bid;
   for (int i = tidx; i < (width<<SHMT) ; i+=get_local_size(0)) {
     int next = (i << SHMT)-m*(i/width);
-#define PAD(x) ((x)+((x)>>SHMT))
     store[PAD(next)] = input[i];
   }
   barrier(CLK_LOCAL_MEM_FENCE);
   for (int i = tidx; i < (width<<SHMT); i+=get_local_size(0)) {
     input[i] = store[PAD(i)];
   }
+#else
+  input += ((width*bid)<<SHMT); //tile_size*width*bid;
+  for (int j = bid; j < A; j += get_num_groups(0)){
+    for (int i = tidx; i < (width<<SHMT) ; i+=get_local_size(0)) {
+      int next = (i << SHMT)-m*(i/width);
+      store[PAD(next)] = input[i];
+    }
+    barrier(CLK_LOCAL_MEM_FENCE);
+    for (int i = tidx; i < (width<<SHMT); i+=get_local_size(0)) {
+      input[i] = store[PAD(i)];
+    }
+    barrier(CLK_LOCAL_MEM_FENCE);
+    input += ((width*get_num_groups(0))<<SHMT); //tile_size*width*get_num_groups(0);
+  }
+#endif
 }
 
 // Converts input[A][a][B] to input[A][B][a]
 // Launch A blocks of NR_THREADS threads
 __kernel void transpose_010_PTTWAC(__global float *input, int A, 
-  int a, int B, __local uint *finished, int R, int SHFT) {
+  int a, int B, __local uint *finished, int R, int SHFT, int P) {
   int tidx = get_local_id(0);
   int m = a*B - 1;
   input += get_group_id(0)*a*B;
 
-#define P 1
   int sh_sz = R * ((a * B + 31) / 32);
   sh_sz += (sh_sz >> 5) * P; // Padding each 32 locations (Number of banks)
 
-
-#define P_IPT 0
 #define PTTWAC_REMAP 0
+#define P_IPT 0
 #if !P_IPT
   //for (int id = tidx ; id < (tile_size * width + 31) / 32;
   for (int id = tidx ; id < sh_sz;
@@ -209,10 +254,12 @@ __kernel void transpose_010_PTTWAC(__global float *input, int A,
   }
 }
 
+#if 0
+// Version for InPar'2012 paper
 // Transformation 100, or ABb to BAb
 // limitations: b cannot exceed # of allowed threads in the system
 // Launch A*B work-groups of b work-items
-/*__kernel void transpose_100(__global float *input, 
+__kernel void transpose_100(__global float *input, 
     int A, int B, int b, __global int *finished) {
   int m = A*B-1;
   int tid = get_local_id(0);
@@ -260,13 +307,14 @@ __kernel void transpose_010_PTTWAC(__global float *input, int A,
 #endif
 #undef P_IPT
   }
-}*/
+}
+#endif
+
 // Transformation 100 - Shared memory tiling
 // Used by both transformation 0100 and 100 (see below)
 // Assumes:
 //  get_local_size(0) == wavefront size;
 //  get_local_size(1) == number of warps
-//#define WARPS 6
 #define P_IPT 0
 void _transpose_100(__global float *input,
     int A, int B, int b, __global int *finished, volatile __local float *data,
@@ -276,7 +324,6 @@ void _transpose_100(__global float *input,
   int group_id = get_group_id(0);
   int warp_id = get_local_id(1);
   int warps_group = get_local_size(1);
-  //const int warp_size = WARP_SIZE; //get_local_size(0);
 
   // Recalculate IDs if virtual warp is used
   if (warp_size == 16){
@@ -350,7 +397,7 @@ if(tid < b){
 
 #else
 
-#define N 16
+#define N 16 // Narrowing: 16 for NVIDIA, 32 for AMD
     for(int i = tid; i < b; i += warp_size){
       data[warp_id*b+i] = input[gid*b+i];
     }
@@ -391,6 +438,7 @@ if(tid < b){
 }
 }
 
+// Block-centric version
 void _transpose_100_b(__global float *input,
     int A, int B, int b, __global int *finished, volatile __local float *data,
     volatile __local float *backup, volatile __local int *done, const int warp_size) {
@@ -438,11 +486,9 @@ if(tid < b){
           input[next_in_cycle*b+i] = data[i];
         }
       }
-      //barrier(CLK_LOCAL_MEM_FENCE|CLK_GLOBAL_MEM_FENCE);
       for(int i = tid; i < b; i += get_local_size(0)){
         data[i] = backup[i];
       }
-      //barrier(CLK_LOCAL_MEM_FENCE|CLK_GLOBAL_MEM_FENCE);
     }
   }
 }

@@ -141,13 +141,12 @@ void cpu_soa_asta(float *src, float *dst, int height, int width,
 TEST_F(libmarshal_cl_test, bug537) {
   int ws[6] = {40, 62, 197, 215, 59, 39};
   int hs[6] = {11948, 17281, 35588, 44609, 90449, 49152};
-  for (int i = 0; i < 2; i++)
-  //for (int t = 48; t <= 4096; t*=2) {
-  for (int t = 1; t <= 64; t*=2) {
+  for (int i = 0; i < 6; i++)
+  for (int t = 1; t <= 4096; t*=2) {
     int w = ws[i];
     int h = (hs[i]+t-1)/t*t;
 
-    std::cerr << "w = "<<w<< "; h/t = " <<h/t<< "; t = " <<t<< "\t";
+    std::cerr << "w = "<<w<< "; h/t = " <<h/t<< "; t = " <<t<< ", ";
 
     float *src = (float*)malloc(sizeof(float)*h*w);
     float *dst = (float*)malloc(sizeof(float)*h*w);
@@ -161,13 +160,14 @@ TEST_F(libmarshal_cl_test, bug537) {
     ASSERT_EQ(queue_->enqueueWriteBuffer(
           d_dst, CL_TRUE, 0, sizeof(float)*h*w, src), CL_SUCCESS);
     cl_uint oldref = GetCtxRef();
+    // Change N to something > 1 to compute average performance (and use some WARM_UP runs).
     const int N = 1;
     const int WARM_UP = 0;
     cl_ulong et = 0;
     for (int n = 0; n < N+WARM_UP; n++) {
       if (n == WARM_UP)
         et = 0;
-      //    bool r = cl_soa_asta_pttwac((*queue_)(), d_dst(), h, w, t);
+      //bool r = cl_soa_asta_pttwac((*queue_)(), d_dst(), h, w, t);
       bool r = cl_transpose_100((*queue_)(), d_dst(), w, h/t, t, &et);
       EXPECT_EQ(oldref, GetCtxRef());
       EXPECT_EQ(oldqref, GetQRef());
@@ -201,18 +201,18 @@ TEST_F(libmarshal_cl_test, bug536) {
     int w = ws[i];
     int h = (hs[i]+t-1)/t*t;
 
-#define MAX_MEM 12288 //6144 //4096
-#define P 1
+#define MAX_MEM 12288 // Shared memory in Fermi and Kepler. Use 4096 for other devices.
+#define P 1 // Padding size
     bool r;
     for(int S_f = 1; S_f <= 32; S_f *=2){ // (Use S_f <= 1 for testing IPT) - S_f = Spreading factor
 
       int sh_sz2 = S_f * ((t*w+31)/32);
       sh_sz2 += (sh_sz2 >> 5) * P;
 
-      printf("w=%d\tt=%d\tw*t=%d\tS_f=%d\t", w, t, w*t, S_f);
-      printf("P=%d\t%d\t%d\t", P, (int)(5-log2(S_f)), sh_sz2);
+      std::cerr << "w = " << w << ", t = " << t << ", w*t = " << w*t << ", S_f = " << S_f;
+      std::cerr << ", P = " << P << ", " << (int)(5-log2(S_f)) << ", " << sh_sz2 << ", ";
 
-      if(sh_sz2 > MAX_MEM) printf("\n");
+      if(sh_sz2 > MAX_MEM) std::cerr << "\n";
       else{
         float *src = (float*)malloc(sizeof(float)*h*w);
         float *dst = (float*)malloc(sizeof(float)*h*w);
@@ -227,13 +227,13 @@ TEST_F(libmarshal_cl_test, bug536) {
         cl_uint oldref = GetCtxRef();
         cl_uint oldqref = GetQRef();
         cl_ulong et = 0;
-        // Change N to something > 1 to compute average performance.
-        const int N = 4;
-        const int WARM_UP = 2;
+        // Change N to something > 1 to compute average performance (and use some WARM_UP runs).
+        const int N = 1;
+        const int WARM_UP = 0;
         for (int n = 0; n < N+WARM_UP; n++) {
           if (n == WARM_UP)
             et = 0;
-          r = cl_transpose_010_pttwac((*queue_)(), d_dst(), h/t, t, w, &et, S_f);
+          r = cl_transpose_010_pttwac((*queue_)(), d_dst(), h/t, t, w, &et, S_f, P);
           EXPECT_EQ(oldref, GetCtxRef());
           EXPECT_EQ(oldqref, GetQRef());
           ASSERT_EQ(false, r);
@@ -253,7 +253,6 @@ TEST_F(libmarshal_cl_test, bug536) {
         Transposition tx(t,w);
         std::cerr << "Num cycles:"<<tx.GetNumCycles()<< "; percentage = " <<
           (float)tx.GetNumCycles()/(float)(w*t)*100 << "\n";
-        //printf("Num_cycles = %d\tpercentage = %f\n",tx.GetNumCycles(), (float)tx.GetNumCycles()/(float)(h*w/t)*100);
 
         free(src);
         free(dst);
@@ -264,11 +263,11 @@ TEST_F(libmarshal_cl_test, bug536) {
 }
 
 TEST_F(libmarshal_cl_test, bug533) {
-  //int w = 95; //20;
-for (int w = 12; w <= 48; w*=2){ //3-48
-  //for (int t=16; t<34; t++) {
-  for (int t=4; t<=16; t++) { //2-128
-    int h = (100*100*130+t-1)/t*t;
+  //int w = 20;
+  for (int w = 3; w <= 768; w*=4)
+  for (int t=1; t<=8; t+=1) {
+    //int h = (100*100*130+t-1)/t*t;
+    int h = (500/w+1)*(100*130+t-1)/t*t;
     std::cerr << "A = " << h/t << ", a = " << t << ", B = " << w << ", w*t = " << w*t << "\t";
     float *src = (float*)malloc(sizeof(float)*h*w);
     float *dst = (float*)malloc(sizeof(float)*h*w);
@@ -295,7 +294,6 @@ for (int w = 12; w <= 48; w*=2){ //3-48
     free(dst);
     free(dst_gpu);
   }
-}
 }
 
 void tile(int x) {
