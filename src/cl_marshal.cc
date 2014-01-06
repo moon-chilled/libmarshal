@@ -144,7 +144,8 @@ extern "C" bool cl_transpose_010_bs(cl_command_queue cl_queue,
   else warp_size = 32;
 
   int warps = nr_threads / warp_size;
-  err = kernel.setArg(3, sh_sz<224?(warps*B*(a+1)*sizeof(cl_float)):(B*(a+1)*sizeof(cl_float)), NULL);
+  //err = kernel.setArg(3, sh_sz<224?(warps*B*(a+1)*sizeof(cl_float)):(B*(a+1)*sizeof(cl_float)), NULL);
+  err = kernel.setArg(3, sh_sz<224?(warps*B*a*sizeof(cl_float)):(IS_POW2(a)?(B*(a+1)*sizeof(cl_float)):B*a*sizeof(cl_float)), NULL);
   err |= kernel.setArg(4, warp_size);
   err |= kernel.setArg(5, A);
   if (err != CL_SUCCESS)
@@ -289,7 +290,9 @@ bool _cl_transpose_0100(cl_command_queue cl_queue,
 #define WARP_SIZE 32
   // Virtual warps
   int v_warp_size;
-  if (b <= 4) v_warp_size = 4;
+  if (b <= 1) v_warp_size = 1;
+  else if (b > 1 && b <= 2) v_warp_size = 2;
+  else if (b > 2 && b <= 4) v_warp_size = 4;
   else if (b > 4 && b <= 24) v_warp_size = 8;
   else if (b > 24 && b <= 48) v_warp_size = 16;
   else v_warp_size = 32;
@@ -355,13 +358,15 @@ extern "C" bool cl_transpose(cl_command_queue queue, cl_mem src, int A, int a,
   cl_ulong et = 0;
   if (0){
     // Method 1: Aa >> Bb
-    T010_BS step1(a, B*b, context()); // Aa(Bb) to A(Bb)a
-    T010_PTTWAC step1p(a, B*b, context()); // Aa(Bb) to A(Bb)a
-    T0100_PTTWAC step2(1, A, B*b, a, context()); //1A(Bb)a to 1(Bb)Aa
-    if ((step1.IsFeasible()||step1p.IsFeasible()) &&
-         step2.IsFeasible()) {
+    //T010_BS step1(a, B*b, context()); // Aa(Bb) to A(Bb)a
+    //T010_PTTWAC step1p(a, B*b, context()); // Aa(Bb) to A(Bb)a
+    //T0100_PTTWAC step2(1, A, B*b, a, context()); //1A(Bb)a to 1(Bb)Aa
+    //if ((step1.IsFeasible()||step1p.IsFeasible()) &&
+    //     step2.IsFeasible()) {
+    if (((a*B*b+31)/32) + ((((a*B*b+31)/32)>>5)*1) <= 12288 && a < (12288 - 64)/2){
       bool r1;
-      if (step1.IsFeasible())
+      //if (step1.IsFeasible())
+      if ((IS_POW2(a) && B*b*(a+1) <= 12288) || (!IS_POW2(a) && B*b*a <= 12288))
         r1 = cl_transpose_010_bs(queue, src, A, a, B*b, &et);
       else
         r1 = cl_transpose_010_pttwac(queue, src, A, a, B*b, &et, R, 1);
@@ -394,6 +399,7 @@ extern "C" bool cl_transpose(cl_command_queue queue, cl_mem src, int A, int a,
     //if (step1.IsFeasible() && (step2.IsFeasible()||step2p.IsFeasible()) 
     //    && step3.IsFeasible()) {
     //if (((a*b+31)/32) + ((((a*b+31)/32)>>5)*P) <= 12288 - 512 && b < (12288 - 512)/2 && a < (12288 - 512)/2){
+    //if (((a*b+31)/32) + ((((a*b+31)/32)>>5)*1) <= 12288 && b < (12288 - 64)/2 && a < (12288 - 64)/2 && B < 2000){
     if (((a*b+31)/32) + ((((a*b+31)/32)>>5)*1) <= 12288 && b < (12288 - 64)/2 && a < (12288 - 64)/2){
       bool r1 = cl_transpose_100(queue, src, A*a, B, b, &et);
       if (r1) {
@@ -402,7 +408,7 @@ extern "C" bool cl_transpose(cl_command_queue queue, cl_mem src, int A, int a,
       }
       bool r2;
       //if (step2.IsFeasible()){
-      if (b*(a+1) <= 12288){
+      if ((IS_POW2(a) && b*(a+1) <= 12288) || (!IS_POW2(a) && b*a <= 12288)){
         std::cerr << "010_BS\t";
         r2 = cl_transpose_010_bs(queue, src, B*A, a, b, &et);
       }
@@ -475,7 +481,10 @@ extern "C" bool cl_transpose(cl_command_queue queue, cl_mem src, int A, int a,
   }
 
   // fallback
-  bool r = cl_transpose_0100(queue, src, 1, A*a, B*b, 1, &et);
+bool r;
+if(A*a<8000 && B*b<8000)
+  //bool r = cl_transpose_0100(queue, src, 1, A*a, B*b, 1, &et);
+  r = cl_transpose_0100(queue, src, 1, A*a, B*b, 1, &et);
 #ifdef LIBMARSHAL_OCL_PROFILE
   //std::cerr << "[cl_transpose] fallback; "<< 
   std::cerr<<

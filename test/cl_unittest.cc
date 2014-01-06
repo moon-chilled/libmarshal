@@ -184,7 +184,7 @@ TEST_F(libmarshal_cl_test, bug537) {
     }
     Transposition tx(w,h/t);
     std::cerr << "Performance = " << float(2*h*w*sizeof(float)*N)/et;
-    std::cerr << "GB/s\t";
+    std::cerr << " GB/s\t";
     std::cerr << "Num cycles:"<<tx.GetNumCycles()<< "; percentage = " <<
       (float)tx.GetNumCycles()/(float)(h*w/t)*100 << "\n";
     free(src);
@@ -311,31 +311,38 @@ void tile(int x) {
 TEST_F(libmarshal_cl_test, full) {
   // dataset size from http://www8.cs.umu.se/research/uminf/reports/2009/001/part1.pdf
   // figure 12
-#if 1
+#define RANDOM 1
+#if RANDOM
   // For skinny matrices
   //const int h_max = 1048576; const int h_min = 4096; //2^22 - 2^12
   //const int w_max = 64; const int w_min = 2;
+  //const int h_max = 999999; const int h_min = 9999; //Tests in Catanzaro's paper
+  //const int w_max = 31; const int w_min = 2;
   // For general matrices
   //const int h_max = 6144; const int h_min = 1024; //2^13 - 2^10
   //const int w_max = 4096; const int w_min = 1536;
-  const int h_max = 19999; const int h_min = 999; //Tests in Catanzaro's paper
-  const int w_max = 19999; const int w_min = 999;
+  const int h_max = 19999; const int h_min = 1000; //Tests in Catanzaro's paper
+  const int w_max = 19999; const int w_min = 1000;
+  //const int h_max = 9999; const int h_min = 1000;
+  //const int w_max = 9999; const int w_min = 1000;
 
-  for (int i = 0; i < 10; i++){
-  // Generate random dimensions
   srand(time(NULL));
+  for (int n = 0; n < 10; n++){
+  // Generate random dimensions
+  //srand(n*time(NULL));
   int h = rand() % (h_max-h_min+1) + h_min;
-  srand(2*time(NULL));
+  //srand(n*2*time(NULL));
   int w = rand() % (w_max-w_min+1) + w_min;
-  std::cerr << "" << h << "," << w << "\t";
-#endif
-#if 0 
-  int ws[] = {1800, 2500, 3200, 3900, 5100, 7200}; //Matrix sizes in PPoPP2014 paper
-  int hs[] = {7200, 5100, 4000, 3300, 2500, 1800};
-  for (int n = 0; n < 6; n++) {
+#else 
+  //int ws[] = {1800, 2500, 3200, 3900, 5100, 7200}; //Matrix sizes in PPoPP2014 paper
+  //int hs[] = {7200, 5100, 4000, 3300, 2500, 1800};
+  int ws[] = {3960, 4563, 3278, 3119, 10035, 19418, 19418, 13635, 4474};
+  int hs[] = {16449, 4210, 5303, 7914, 8087, 11516, 17379, 17704, 8998};
+  for (int n = 0; n < 2; n++) {
   int w = ws[n];
   int h = hs[n];
 #endif
+  std::cerr << "" << h << "," << w << "\t";
 
   float *src = (float*)malloc(sizeof(float)*h*w);
   float *dst = (float*)malloc(sizeof(float)*h*w);
@@ -347,7 +354,9 @@ TEST_F(libmarshal_cl_test, full) {
   wf.tiling_options();
   std::vector<int> hoptions = hf.get_tile_sizes();
   std::vector<int> woptions = wf.get_tile_sizes();
+  std::cerr << "" << hoptions.size() << "," << woptions.size() << "\t";
 
+#if 1
   // Sort factors
   //for(int x=0; x<hoptions.size(); x++) printf("%d ", hoptions[x]);
   //printf("\n");
@@ -359,18 +368,25 @@ TEST_F(libmarshal_cl_test, full) {
   gsl_sort_int_index((size_t *)wf_sorted, &woptions[0], 1, woptions.size());
   for(int x=0; x<woptions.size(); x++) printf("%d ", woptions[wf_sorted[x]]);
   printf("\n");
+#endif
 
-  //for (int i = 0 ; i < hoptions.size(); i++) {
-    //int A = h/hoptions[i], a = hoptions[i];
-    //for (int j = 0; j < woptions.size(); j++) {
-      //int B = w/woptions[j], b = woptions[j];
-  int A, a, B, b;
+#define BRUTE 0
+#if BRUTE
+  for (int i = 0 ; i < hoptions.size(); i++) {
+  //for (int i = 0 ; i < 1; i++) {
+    int A = h/hoptions[i], a = hoptions[i];
+    for (int j = 0; j < woptions.size(); j++) {
+    //for (int j = 0; j < 1; j++) {
+      int B = w/woptions[j], b = woptions[j];
+#else
+  // Heuristic used by Catanzaro et al. (PPoPP'2014)
+  /*int A, a, B, b;
   int i = 0;
   if (hoptions.size() == 1){
     a = 1; A = h;
   }
   else{
-    while (hoptions[hf_sorted[i]] <=110){ //72
+    while (hoptions[hf_sorted[i]] <=72){ //110
       i++;
     }
     a = hoptions[hf_sorted[i-1]]; A = h/a;
@@ -380,11 +396,98 @@ TEST_F(libmarshal_cl_test, full) {
     b = 1; B = w;
   }
   else{
-    while (woptions[wf_sorted[i]] <=110){ //72
+    while (woptions[wf_sorted[i]] <=72){ //110
       i++;
     }
     b = woptions[wf_sorted[i-1]]; B = w/b;
+  }*/
+
+  int A, a, B, b;
+  int i = 0;
+  if (hoptions.size() == 1){
+    if (hoptions[hf_sorted[0]] <= 4096){
+      a = h; A = 1;
+      i = 0;
+      //while (woptions[wf_sorted[i]] * a < 12288){
+      //while (((woptions[wf_sorted[i]]*a+31)/32) + ((((woptions[wf_sorted[i]]*a+31)/32)>>5)*1) <= 12288){
+      for (int j = 0; j < woptions.size(); j++)
+        if (((woptions[wf_sorted[j]]*a+31)/32) + ((((woptions[wf_sorted[j]]*a+31)/32)>>5)*1) <= 12288)
+          i++;
+      if (i > 0){
+        b = woptions[wf_sorted[i-1]]; B = w/b;
+      }
+      else{
+        b = 1; B = w/b;
+      } 
+    }
+    else{
+      a = 1; A = h;
+      i = 0;
+      //while (woptions[wf_sorted[i]] <= 256){
+      //while (woptions[wf_sorted[i]] * a < 12288 && woptions.size() > i){
+      for (int j = 0; j < woptions.size(); j++)
+        if (woptions[wf_sorted[j]] * a < 12288)
+          i++;
+      if (i > 0){
+        b = woptions[wf_sorted[i-1]]; B = w/b;
+      }
+      else{
+        b = 1; B = w/b;
+      } 
+    }
   }
+  else if (woptions.size() == 1){
+    if (woptions[wf_sorted[0]] <= 4096){
+      b = w; B = 1;
+      i = 0;
+      //while (hoptions[hf_sorted[i]] * b < 12288){
+      //while (((hoptions[hf_sorted[i]]*b+31)/32) + ((((hoptions[hf_sorted[i]]*b+31)/32)>>5)*1) <= 12288){
+      for (int j = 0; j < hoptions.size(); j++)
+        if (((hoptions[hf_sorted[j]]*b+31)/32) + ((((hoptions[hf_sorted[j]]*b+31)/32)>>5)*1) <= 12288)
+          i++;
+      if (i > 0){
+        a = hoptions[hf_sorted[i-1]]; A = h/a;
+      }
+      else{
+        a = 1; A = h/b;
+      } 
+    }
+    else{
+      b = 1; B = w;
+      i = 0;
+      //while (hoptions[hf_sorted[i]] <= 256){
+      //while (hoptions[hf_sorted[i]] * b < 12288 && hoptions.size() > i){
+      for (int j = 0; j < hoptions.size(); j++)
+        if (hoptions[hf_sorted[j]] * b < 12288)
+          i++;
+      if (i > 0){
+        a = hoptions[hf_sorted[i-1]]; A = h/a;
+      }
+      else{
+        a = 1; A = h/b;
+      } 
+    }
+  }
+  else{
+    i = 0;
+    while (hoptions[hf_sorted[i]] <= 192){ //128
+      i++;
+    }
+    a = hoptions[hf_sorted[i-1]]; A = h/a;
+    i = 0;
+    //while (woptions[wf_sorted[i]] * a < 12288 && woptions.size() > i){ //6144
+    for (int j = 0; j < woptions.size(); j++)
+      //if (woptions[wf_sorted[j]] * a < 12288) //6144
+      if (woptions[wf_sorted[j]] * a < 12288 && woptions[wf_sorted[j]] <= 192) //6144, 128
+        i++;
+    b = woptions[wf_sorted[i-1]]; B = w/b;
+    if (b * A < 12288 && b * A > b * a){ //6144
+      A = a; a = h/A;
+    //if ((b * a < 1024) && ((B*a+31)/32) + ((((B*a+31)/32)>>5)*1) <= 12288){
+    //  B = b; b = w/B;
+    }
+  }
+#endif
 
       cl_int err;
       cl::Buffer d_dst = cl::Buffer(*context_, CL_MEM_READ_WRITE,
@@ -428,9 +531,11 @@ TEST_F(libmarshal_cl_test, full) {
       cpu_soa_asta(dst, src, w*a, A, a);
       ASSERT_EQ(queue_->enqueueReadBuffer(d_dst, CL_TRUE, 0, sizeof(float)*h*w,
             dst_gpu), CL_SUCCESS);
-      EXPECT_EQ(0, compare_output(dst_gpu, src, h*w));
-  //  }
-  //}
+//      EXPECT_EQ(0, compare_output(dst_gpu, src, h*w));
+#if BRUTE
+    }
+  }
+#endif
   free(src);
   free(dst);
   free(dst_gpu);

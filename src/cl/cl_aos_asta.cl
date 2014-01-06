@@ -122,7 +122,8 @@ __kernel void BS_marshal_vw (__global float *input, int tile_size, int width,
   }
 #else
   input += tile_size*width*bid;
-  store += (tile_size+1)*width*warp_id;
+  //store += (tile_size+1)*width*warp_id;
+  store += tile_size*width*warp_id;
   for (int j = bid; j < A; j += get_num_groups(0)*warps_group){
     for (int i = tidx; i < tile_size*width; i+=warp_size) {
       int next = (i * tile_size)-m*(i/width);
@@ -398,9 +399,37 @@ if(tid < b){
 #else
 
 #define N 16 // Narrowing: 16 for NVIDIA, 32 for AMD
+#define ORIG2 1
+#if ORIG2
     for(int i = tid; i < b; i += warp_size){
       data[warp_id*b+i] = input[gid*b+i];
     }
+#else
+    int width = b<=warp_size?b:warp_size;
+    int warp_iter = warp_id;
+    int width_rem = b;
+    for(int i = tid; i < b; i += warp_size){
+      /*if(b>warp_size){
+      //i-tid+warp_size>b?data[warp_iter*width+warp_id*width_rem+tid]=input[gid*b+i]:data[warp_iter*width+tid]=input[gid*b+i];
+      //data[warp_iter*width+tid] = input[gid*b+tid];
+        if(i-tid+warp_size>=b)
+          data[(warp_iter-warp_id)*width+warp_id*width_rem+tid] = input[gid*b+i];
+        else
+          data[warp_iter*width+tid] = input[gid*b+i];
+      }
+      else
+        data[warp_iter*width+tid] = input[gid*b+i];
+      warp_iter += warps_group;
+      width_rem -= width;*/
+      if(b>warp_size && i-tid+warp_size>=b)
+        data[(warp_iter-warp_id)*width+warp_id*width_rem+tid] = input[gid*b+i];
+      else{
+        data[warp_iter*width+tid] = input[gid*b+i];
+        warp_iter += warps_group;
+        width_rem -= width;
+      }
+    }
+#endif
     if (tid == 0){
       //make sure the read is not cached 
       //done[warp_id] = atom_or(finished+gid, (int)0); 
@@ -413,9 +442,34 @@ if(tid < b){
 
     for (;done[warp_id] == 0; 
         next_in_cycle = (next_in_cycle*A)-m*(next_in_cycle/B)) {
+#if ORIG2
       for(int i = tid; i < b; i += warp_size){
         backup[warp_id*b+i] = input[next_in_cycle*b+i];
       }
+#else
+      warp_iter = warp_id;
+      //width_rem = b;
+      for(int i = tid; i < b; i += warp_size){
+        /*if(b>warp_size){
+        //i-tid+warp_size>b?backup[warp_iter*width+warp_id*width_rem+tid]=input[next_in_cycle*b+i]:backup[warp_iter*width+tid] = input[next_in_cycle*b+i];
+	//backup[warp_iter*width+tid] = input[next_in_cycle*b+tid];
+	  if(i-tid+warp_size>=b)
+            backup[(warp_iter-warp_id)*width+warp_id*width_rem+tid] = input[next_in_cycle*b+i];
+          else
+            backup[warp_iter*width+tid] = input[next_in_cycle*b+i];
+        }
+        else
+          backup[warp_iter*width+tid] = input[next_in_cycle*b+i];
+        warp_iter += warps_group;
+        width_rem -= width;*/
+        if(b>warp_size && i-tid+warp_size>=b)
+          backup[(warp_iter-warp_id)*width+warp_id*width_rem+tid] = input[next_in_cycle*b+i];
+        else{
+          backup[warp_iter*width+tid] = input[next_in_cycle*b+i];
+          warp_iter += warps_group;
+        }
+      }
+#endif
       if (tid == 0) {
         //done[warp_id] = atom_xchg(finished+next_in_cycle, (int)1);
         // Narrowing
@@ -425,13 +479,67 @@ if(tid < b){
         done[warp_id]  = flag_read & mask;
       }
       if (!done[warp_id]) {
+#if ORIG2
         for(int i = tid; i < b; i += warp_size){
           input[next_in_cycle*b+i] = data[warp_id*b+i];
         }
+#else
+        warp_iter = warp_id;
+        //width_rem = b;
+        for(int i = tid; i < b; i += warp_size){
+          /*if(b>warp_size){
+          //i-tid+warp_size>b?input[next_in_cycle*b+i]=data[warp_iter*width+warp_id*width_rem+tid]:input[next_in_cycle*b+i]=data[warp_iter*width+tid];
+          //input[next_in_cycle*b+tid] = data[warp_iter*width+tid];
+            if(i-tid+warp_size>=b)
+              input[next_in_cycle*b+i] = data[(warp_iter-warp_id)*width+warp_id*width_rem+tid];
+            else
+              input[next_in_cycle*b+i] = data[warp_iter*width+tid];
+          }
+          else
+            input[next_in_cycle*b+i] = data[warp_iter*width+tid];
+          warp_iter += warps_group;
+          width_rem -= width;*/
+          if(b>warp_size && i-tid+warp_size>=b)
+            input[next_in_cycle*b+i] = data[(warp_iter-warp_id)*width+warp_id*width_rem+tid];
+          else{
+            input[next_in_cycle*b+i] = data[warp_iter*width+tid];
+            warp_iter += warps_group;
+          }
+        }
+#endif
+
       }
+#if ORIG2
       for(int i = tid; i < b; i += warp_size){
         data[warp_id*b+i] = backup[warp_id*b+i];
       }
+#else 
+      warp_iter = warp_id;
+      //width_rem = b;
+      for(int i = tid; i < b; i += warp_size){
+        //data[warp_iter*width+tid] = backup[warp_iter*width+tid];
+        //data[warp_id*b+i] = backup[warp_id*b+i];
+        //i-tid+warp_size>b?data[warp_iter*width+warp_id*width_rem+tid]=backup[warp_iter*width+warp_id*width_rem+tid]:data[warp_iter*width+tid]=backup[warp_iter*width+tid];
+        /*if(b>warp_size){
+        //i-tid+warp_size>b?input[next_in_cycle*b+i]=data[warp_iter*width+warp_id*width_rem+tid]:input[next_in_cycle*b+i]=data[warp_iter*width+tid];
+        //input[next_in_cycle*b+tid] = data[warp_iter*width+tid];
+          if(i-tid+warp_size>=b)
+            data[(warp_iter-warp_id)*width+warp_id*width_rem+tid] = backup[(warp_iter-warp_id)*width+warp_id*width_rem+tid];
+          else
+            data[warp_iter*width+tid] = backup[warp_iter*width+tid];
+        }
+        else
+          data[warp_iter*width+tid] = backup[warp_iter*width+tid];
+        warp_iter += warps_group;
+        width_rem -= width;*/
+        if(b>warp_size && i-tid+warp_size>=b)
+          data[(warp_iter-warp_id)*width+warp_id*width_rem+tid] = backup[(warp_iter-warp_id)*width+warp_id*width_rem+tid];
+        else{
+          data[warp_iter*width+tid] = backup[warp_iter*width+tid];
+          warp_iter += warps_group;
+        }
+      }
+#endif
     }
 #endif
   }
