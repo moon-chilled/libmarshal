@@ -336,9 +336,9 @@ TEST_F(libmarshal_cl_test, full) {
 #else 
   //int ws[] = {1800, 2500, 3200, 3900, 5100, 7200}; //Matrix sizes in PPoPP2014 paper
   //int hs[] = {7200, 5100, 4000, 3300, 2500, 1800};
-  int ws[] = {3960, 4563, 3278, 3119, 10035, 19418, 19418, 13635, 4474};
-  int hs[] = {16449, 4210, 5303, 7914, 8087, 11516, 17379, 17704, 8998};
-  for (int n = 0; n < 2; n++) {
+  int ws[] = {9703, 9789, 17084, 19193, 7391, 17853, 15257, 10148, 18801, 12624, 12918, 14858};
+  int hs[] = {19604, 12903, 2299, 1796, 6024, 18201, 7844, 9189, 12050, 10645, 7244, 11588};
+  for (int n = 0; n < 12; n++) {
   int w = ws[n];
   int h = hs[n];
 #endif
@@ -374,10 +374,13 @@ TEST_F(libmarshal_cl_test, full) {
 #if BRUTE
   for (int i = 0 ; i < hoptions.size(); i++) {
   //for (int i = 0 ; i < 1; i++) {
-    int A = h/hoptions[i], a = hoptions[i];
+    //int A = h/hoptions[i], a = hoptions[i];
+    int A = h/hoptions[hf_sorted[i]], a = hoptions[hf_sorted[i]];
     for (int j = 0; j < woptions.size(); j++) {
     //for (int j = 0; j < 1; j++) {
-      int B = w/woptions[j], b = woptions[j];
+      //int B = w/woptions[j], b = woptions[j];
+      int B = w/woptions[wf_sorted[j]], b = woptions[wf_sorted[j]];
+      if (B > 5900) continue;
 #else
   // Heuristic used by Catanzaro et al. (PPoPP'2014)
   /*int A, a, B, b;
@@ -402,14 +405,14 @@ TEST_F(libmarshal_cl_test, full) {
     b = woptions[wf_sorted[i-1]]; B = w/b;
   }*/
 
+#if 0
+  // Heu 2_3
   int A, a, B, b;
   int i = 0;
   if (hoptions.size() == 1){
-    if (hoptions[hf_sorted[0]] <= 4096){
+    if (hoptions[hf_sorted[0]] <= 6112){
       a = h; A = 1;
       i = 0;
-      //while (woptions[wf_sorted[i]] * a < 12288){
-      //while (((woptions[wf_sorted[i]]*a+31)/32) + ((((woptions[wf_sorted[i]]*a+31)/32)>>5)*1) <= 12288){
       for (int j = 0; j < woptions.size(); j++)
         if (((woptions[wf_sorted[j]]*a+31)/32) + ((((woptions[wf_sorted[j]]*a+31)/32)>>5)*1) <= 12288)
           i++;
@@ -423,8 +426,6 @@ TEST_F(libmarshal_cl_test, full) {
     else{
       a = 1; A = h;
       i = 0;
-      //while (woptions[wf_sorted[i]] <= 256){
-      //while (woptions[wf_sorted[i]] * a < 12288 && woptions.size() > i){
       for (int j = 0; j < woptions.size(); j++)
         if (woptions[wf_sorted[j]] * a < 12288)
           i++;
@@ -437,11 +438,9 @@ TEST_F(libmarshal_cl_test, full) {
     }
   }
   else if (woptions.size() == 1){
-    if (woptions[wf_sorted[0]] <= 4096){
+    if (woptions[wf_sorted[0]] <= 6112){
       b = w; B = 1;
       i = 0;
-      //while (hoptions[hf_sorted[i]] * b < 12288){
-      //while (((hoptions[hf_sorted[i]]*b+31)/32) + ((((hoptions[hf_sorted[i]]*b+31)/32)>>5)*1) <= 12288){
       for (int j = 0; j < hoptions.size(); j++)
         if (((hoptions[hf_sorted[j]]*b+31)/32) + ((((hoptions[hf_sorted[j]]*b+31)/32)>>5)*1) <= 12288)
           i++;
@@ -455,8 +454,6 @@ TEST_F(libmarshal_cl_test, full) {
     else{
       b = 1; B = w;
       i = 0;
-      //while (hoptions[hf_sorted[i]] <= 256){
-      //while (hoptions[hf_sorted[i]] * b < 12288 && hoptions.size() > i){
       for (int j = 0; j < hoptions.size(); j++)
         if (hoptions[hf_sorted[j]] * b < 12288)
           i++;
@@ -469,25 +466,247 @@ TEST_F(libmarshal_cl_test, full) {
     }
   }
   else{
-    i = 0;
-    while (hoptions[hf_sorted[i]] <= 192){ //128
-      i++;
+    /*//i = 0;
+    int k = 0;
+    for (int j = 0; j < hoptions.size(); j++)
+      //if (hoptions[hf_sorted[i]] <= 128)
+      //  i++;
+      if (hoptions[hf_sorted[k]] <= 128)
+        k++;
+    //if (i > 0){
+    //  a = hoptions[hf_sorted[i-1]]; A = h/a;
+    if (k > 0){
+      a = hoptions[hf_sorted[k-1]]; A = h/a;
     }
-    a = hoptions[hf_sorted[i-1]]; A = h/a;
+    else{
+      a = hoptions[hf_sorted[0]]; A = h/a;
+    }
     i = 0;
-    //while (woptions[wf_sorted[i]] * a < 12288 && woptions.size() > i){ //6144
     for (int j = 0; j < woptions.size(); j++)
-      //if (woptions[wf_sorted[j]] * a < 12288) //6144
-      if (woptions[wf_sorted[j]] * a < 12288 && woptions[wf_sorted[j]] <= 192) //6144, 128
+      if (woptions[wf_sorted[j]] * a < 12288 && woptions[wf_sorted[j]] <= 128) //6144, 192
         i++;
     b = woptions[wf_sorted[i-1]]; B = w/b;
     if (b * A < 12288 && b * A > b * a){ //6144
       A = a; a = h/A;
-    //if ((b * a < 1024) && ((B*a+31)/32) + ((((B*a+31)/32)>>5)*1) <= 12288){
-    //  B = b; b = w/B;
+      for (int j = k-2; j >= 0; j--)
+        if (b * h/hoptions[hf_sorted[j]] < 6144){
+          a = h/hoptions[hf_sorted[j]]; A = h/a;
+        }
+    }*/
+    // Heu 4
+    int k = 0;
+    for (int j = 0; j < woptions.size(); j++)
+      if (woptions[wf_sorted[k]] < 32)
+        k++;
+    if (k > 0){
+      b = woptions[wf_sorted[k]]; B = w/b;
+    }
+    else{
+      b = woptions[wf_sorted[0]]; B = w/b;
+    }
+    i = 0;
+    for (int j = 0; j < hoptions.size(); j++)
+      if (hoptions[hf_sorted[j]] * b < 12288)
+        i++;
+    if (i > 0){
+      a = hoptions[hf_sorted[i-1]]; A = h/a;
+    }
+    else{
+      a = hoptions[hf_sorted[0]]; A = h/a;
     }
   }
 #endif
+
+  int A = 0; int a = 0; int B = 0; int b = 0;
+  struct int2{int x; int y;};
+  int k = 0; int l = 0; int p = 0; 
+  int2 maxtile; maxtile.x = 0; maxtile.y = 0;
+  int re = 0; int min_limit = 24; int done = 0; int max_limit = 4096;
+  int hoptions_good[hoptions.size()];
+  int woptions_good[woptions.size()];
+  int2 tileoptions[hoptions.size()*woptions.size()];
+do{
+  printf("1. done = %d\t", done);
+  k = 0; l = 0; p = 0; re = 0;
+  // Desired minimum and maximum for a and b
+//if (k == 0)
+  for (int j = 0; j < hoptions.size(); j++)
+    if (hoptions[hf_sorted[j]] >= min_limit && hoptions[hf_sorted[j]] <= max_limit){
+      hoptions_good[k] = hoptions[hf_sorted[j]];
+      k++;
+    }
+//if (l == 0)
+  for (int j = 0; j < woptions.size(); j++)
+    if (woptions[wf_sorted[j]] >= min_limit && woptions[wf_sorted[j]] <= max_limit){
+      woptions_good[l] = woptions[wf_sorted[j]];
+      l++;
+    }
+  printf("k=%d, l=%d\t",k,l);
+  //if (k == 0 && hoptions.size() > 1) k = hoptions.size();
+  //if (l == 0 && woptions.size() > 1) l = woptions.size();
+  // Two in the desired range
+  if (k > 0 && l > 0){
+    for (int i = 0; i < k; i++)
+      for (int j = 0; j < l; j++)
+        if (hoptions_good[i] * woptions_good[j] < 12288){ // Fits in local memory
+          tileoptions[p].x = hoptions_good[i]; 
+          tileoptions[p].y = woptions_good[j];
+          p++;
+        }
+    //printf("p=%d\t",p);
+    int maxfactor = 1;
+    for (int j = 0; j < p; j++){ // Use as much local memory as possible
+      done = 1;
+      int tilesize = tileoptions[j].x * tileoptions[j].y;
+      int factor = 1;
+      //printf("tilesize = %d\t", tilesize);
+      if (tilesize < 768) factor = 16;
+      else if (tilesize >= 768 && tilesize < 1536) factor = 8;
+      else if (tilesize >= 1536 && tilesize < 3072) factor = 4;
+      else if (tilesize >= 3072 && tilesize < 6144) factor = 2;
+      tilesize *= factor;
+      //printf("tilesize = %d\n", tilesize);
+      if (tilesize > maxtile.x * maxtile.y * maxfactor){
+        maxtile.x = tileoptions[j].x;
+        maxtile.y = tileoptions[j].y;
+        maxfactor = factor;
+      }
+    }
+    if (p == 0 && min_limit <= 0) // && max_limit > 6144) // Does not fit in local memory: largest a and b possible
+      for (int i = 0; i < k; i++)
+        for (int j = re; j < l; j++){
+          //if (((hoptions_good[i]*woptions_good[j]+31)/32) + ((((hoptions_good[i]*woptions_good[j]+31)/32)>>5)*1) <= 12288 && j >= re){
+          //printf("re=%d\t%d\t",re, ((hoptions_good[i]*woptions_good[j]+31)/32) + ((((hoptions_good[i]*woptions_good[j]+31)/32)>>5)*1));
+          if (((hoptions_good[i]*woptions_good[j]+31)/32) + ((((hoptions_good[i]*woptions_good[j]+31)/32)>>5)*1) <= 12288){
+            maxtile.x = hoptions_good[i];
+            maxtile.y = woptions_good[j];
+            re = j;
+            done = 1;
+          }}
+    //if (p == 0 && min_limit >= 8 && max_limit <= 6144){
+    if (p == 0){
+      min_limit -= 2;
+      max_limit += 256;
+    //printf("in min_limit=%d, max_limit=%d\t",min_limit, max_limit);
+    }
+    if (done == 1){
+      a = maxtile.x; A = h/a;
+      b = maxtile.y; B = w/b;
+      //printf("a = %d, b = %d\n", a, b);
+    }
+  }
+  else{
+    min_limit -= 2;
+    max_limit += 256;
+    //printf("out min_limit=%d, max_limit=%d\t",min_limit, max_limit);
+  }
+  // One in the desired range
+  /*if (k == 0 && l > 0){
+    for (int i = 0; i < hoptions.size(); i++)
+      for (int j = 0; j < l; j++)
+        if (hoptions_good[i] * woptions_good[j] < 12288){ // Fits in local memory
+          tileoptions[p].x = hoptions_good[i];
+          tileoptions[p].y = woptions_good[j];
+          p++;
+        }
+    int maxfactor = 1;
+    for (int j = 0; j < p; j++){ // Use as much local memory as possible
+      done = 1;
+      int tilesize = tileoptions[j].x * tileoptions[j].y;
+      int factor = 1;
+      if (tilesize < 768) factor = 16;
+      else if (tilesize >= 768 && tilesize < 1536) factor = 8;
+      else if (tilesize >= 1536 && tilesize < 3072) factor = 4;
+      else if (tilesize >= 3072 && tilesize < 6144) factor = 2;
+      tilesize *= factor;
+      if (tilesize > maxtile.x * maxtile.y * maxfactor){
+        maxtile.x = tileoptions[j].x;
+        maxtile.y = tileoptions[j].y;
+        maxfactor = factor;
+      }
+    }
+    if (p == 0) // Does not fit in local memory: largest a and b possible
+      for (int i = 0; i < hoptions.size(); i++)
+        for (int j = re; j < l; j++)
+          if (((hoptions_good[i]*woptions_good[j]+31)/32) + ((((hoptions_good[i]*woptions_good[j]+31)/32)>>5)*1) <= 12288){
+            maxtile.x = hoptions_good[i];
+            maxtile.y = woptions_good[j];
+            re = j;
+            done = 1;
+          }
+    if (done == 0) min_limit -= 24;
+    else{
+      a = maxtile.x; A = h/a;
+      b = maxtile.y; B = w/b;
+    }
+  }
+  if (k > 0 && l == 0){
+    for (int i = 0; i < woptions.size(); i++)
+      for (int j = 0; j < k; j++)
+        if (hoptions_good[j] * woptions_good[i] < 12288){ // Fits in local memory
+          tileoptions[p].x = hoptions_good[j];
+          tileoptions[p].y = woptions_good[i];
+          p++;
+        }
+    int maxfactor = 1;
+    for (int j = 0; j < p; j++){ // Use as much local memory as possible
+      done = 1;
+      int tilesize = tileoptions[j].x * tileoptions[j].y;
+      int factor = 1;
+      if (tilesize < 768) factor = 16;
+      else if (tilesize >= 768 && tilesize < 1536) factor = 8;
+      else if (tilesize >= 1536 && tilesize < 3072) factor = 4;
+      else if (tilesize >= 3072 && tilesize < 6144) factor = 2;
+      tilesize *= factor;
+      if (tilesize > maxtile.x * maxtile.y * maxfactor){
+        maxtile.x = tileoptions[j].x;
+        maxtile.y = tileoptions[j].y;
+        maxfactor = factor;
+      }
+    }
+    if (p == 0) // Does not fit in local memory: largest a and b possible
+      for (int i = 0; i < woptions.size(); i++)
+        for (int j = re; j < k; j++)
+          if (((hoptions_good[j]*woptions_good[i]+31)/32) + ((((hoptions_good[j]*woptions_good[i]+31)/32)>>5)*1) <= 12288){
+            maxtile.x = hoptions_good[j];
+            maxtile.y = woptions_good[i];
+            re = j;
+            done = 1;
+          }
+    if (done == 0) min_limit -= 24;
+    else{
+      a = maxtile.x; A = h/a;
+      b = maxtile.y; B = w/b;
+    }
+  }*/
+}while(!done && min_limit >= 0);
+  k = 0; l = 0;
+  // None in the desired range
+  //if (k == 0 && l == 0){
+  if (done == 0){
+    //done = 1;
+    printf("2. done = %d\t", done);
+    for (int j = 0; j < hoptions.size(); j++)
+      if (hoptions[hf_sorted[j]] <= 6112)
+        k++;
+    for (int j = 0; j < woptions.size(); j++)
+      if (woptions[wf_sorted[j]] <= 6112)
+        l++;
+    if (k > 0){
+      a = hoptions[hf_sorted[k]]; A = h/a;
+    }
+    else{
+      a = 1; A = h/a;
+    }
+    if (l > 0){
+      b = woptions[hf_sorted[l]]; B = w/b;
+    }
+    else{
+      b = 1; B = w/b;
+   }
+  }
+#endif
+      //if (B > 5900) continue;
 
       cl_int err;
       cl::Buffer d_dst = cl::Buffer(*context_, CL_MEM_READ_WRITE,
@@ -526,9 +745,9 @@ TEST_F(libmarshal_cl_test, full) {
         continue;
       // compute golden
       // [h/t][t][w] to [h/t][w][t]
-      cpu_aos_asta(src, dst, h, w, a);
+//      cpu_aos_asta(src, dst, h, w, a);
       // [h/t][w][t] to [h/t][t][w]
-      cpu_soa_asta(dst, src, w*a, A, a);
+//      cpu_soa_asta(dst, src, w*a, A, a);
       ASSERT_EQ(queue_->enqueueReadBuffer(d_dst, CL_TRUE, 0, sizeof(float)*h*w,
             dst_gpu), CL_SUCCESS);
 //      EXPECT_EQ(0, compare_output(dst_gpu, src, h*w));

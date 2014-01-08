@@ -187,9 +187,7 @@ __kernel void transpose_010_PTTWAC(__global float *input, int A,
 #define PTTWAC_REMAP 0
 #define P_IPT 0
 #if !P_IPT
-  //for (int id = tidx ; id < (tile_size * width + 31) / 32;
-  for (int id = tidx ; id < sh_sz;
-      id += get_local_size(0)) {
+  for (int id = tidx ; id < sh_sz; id += get_local_size(0)) {
     finished[id] = 0;
   }
   barrier(CLK_LOCAL_MEM_FENCE);
@@ -363,7 +361,7 @@ void _transpose_100(__global float *input,
     warp_id = warp_id * vwarps_in_warp + vwarp_id;
   }
 
-if(tid < b){
+//if(tid < b){
   for(int gid = group_id * warps_group + warp_id; gid < m;
     gid += get_num_groups(0) * warps_group) {
     int next_in_cycle = (gid * A)-m*(gid/B);
@@ -409,18 +407,6 @@ if(tid < b){
     int warp_iter = warp_id;
     int width_rem = b;
     for(int i = tid; i < b; i += warp_size){
-      /*if(b>warp_size){
-      //i-tid+warp_size>b?data[warp_iter*width+warp_id*width_rem+tid]=input[gid*b+i]:data[warp_iter*width+tid]=input[gid*b+i];
-      //data[warp_iter*width+tid] = input[gid*b+tid];
-        if(i-tid+warp_size>=b)
-          data[(warp_iter-warp_id)*width+warp_id*width_rem+tid] = input[gid*b+i];
-        else
-          data[warp_iter*width+tid] = input[gid*b+i];
-      }
-      else
-        data[warp_iter*width+tid] = input[gid*b+i];
-      warp_iter += warps_group;
-      width_rem -= width;*/
       if(b>warp_size && i-tid+warp_size>=b)
         data[(warp_iter-warp_id)*width+warp_id*width_rem+tid] = input[gid*b+i];
       else{
@@ -448,20 +434,7 @@ if(tid < b){
       }
 #else
       warp_iter = warp_id;
-      //width_rem = b;
       for(int i = tid; i < b; i += warp_size){
-        /*if(b>warp_size){
-        //i-tid+warp_size>b?backup[warp_iter*width+warp_id*width_rem+tid]=input[next_in_cycle*b+i]:backup[warp_iter*width+tid] = input[next_in_cycle*b+i];
-	//backup[warp_iter*width+tid] = input[next_in_cycle*b+tid];
-	  if(i-tid+warp_size>=b)
-            backup[(warp_iter-warp_id)*width+warp_id*width_rem+tid] = input[next_in_cycle*b+i];
-          else
-            backup[warp_iter*width+tid] = input[next_in_cycle*b+i];
-        }
-        else
-          backup[warp_iter*width+tid] = input[next_in_cycle*b+i];
-        warp_iter += warps_group;
-        width_rem -= width;*/
         if(b>warp_size && i-tid+warp_size>=b)
           backup[(warp_iter-warp_id)*width+warp_id*width_rem+tid] = input[next_in_cycle*b+i];
         else{
@@ -485,20 +458,7 @@ if(tid < b){
         }
 #else
         warp_iter = warp_id;
-        //width_rem = b;
         for(int i = tid; i < b; i += warp_size){
-          /*if(b>warp_size){
-          //i-tid+warp_size>b?input[next_in_cycle*b+i]=data[warp_iter*width+warp_id*width_rem+tid]:input[next_in_cycle*b+i]=data[warp_iter*width+tid];
-          //input[next_in_cycle*b+tid] = data[warp_iter*width+tid];
-            if(i-tid+warp_size>=b)
-              input[next_in_cycle*b+i] = data[(warp_iter-warp_id)*width+warp_id*width_rem+tid];
-            else
-              input[next_in_cycle*b+i] = data[warp_iter*width+tid];
-          }
-          else
-            input[next_in_cycle*b+i] = data[warp_iter*width+tid];
-          warp_iter += warps_group;
-          width_rem -= width;*/
           if(b>warp_size && i-tid+warp_size>=b)
             input[next_in_cycle*b+i] = data[(warp_iter-warp_id)*width+warp_id*width_rem+tid];
           else{
@@ -515,23 +475,7 @@ if(tid < b){
       }
 #else 
       warp_iter = warp_id;
-      //width_rem = b;
       for(int i = tid; i < b; i += warp_size){
-        //data[warp_iter*width+tid] = backup[warp_iter*width+tid];
-        //data[warp_id*b+i] = backup[warp_id*b+i];
-        //i-tid+warp_size>b?data[warp_iter*width+warp_id*width_rem+tid]=backup[warp_iter*width+warp_id*width_rem+tid]:data[warp_iter*width+tid]=backup[warp_iter*width+tid];
-        /*if(b>warp_size){
-        //i-tid+warp_size>b?input[next_in_cycle*b+i]=data[warp_iter*width+warp_id*width_rem+tid]:input[next_in_cycle*b+i]=data[warp_iter*width+tid];
-        //input[next_in_cycle*b+tid] = data[warp_iter*width+tid];
-          if(i-tid+warp_size>=b)
-            data[(warp_iter-warp_id)*width+warp_id*width_rem+tid] = backup[(warp_iter-warp_id)*width+warp_id*width_rem+tid];
-          else
-            data[warp_iter*width+tid] = backup[warp_iter*width+tid];
-        }
-        else
-          data[warp_iter*width+tid] = backup[warp_iter*width+tid];
-        warp_iter += warps_group;
-        width_rem -= width;*/
         if(b>warp_size && i-tid+warp_size>=b)
           data[(warp_iter-warp_id)*width+warp_id*width_rem+tid] = backup[(warp_iter-warp_id)*width+warp_id*width_rem+tid];
         else{
@@ -543,7 +487,7 @@ if(tid < b){
     }
 #endif
   }
-}
+//}
 }
 
 // Block-centric version
@@ -554,7 +498,7 @@ void _transpose_100_b(__global float *input,
   int tid = get_local_id(0);
   int group_id = get_group_id(0);
 
-if(tid < b){
+//if(tid < b){
   for(int gid = group_id; gid < m; gid += get_num_groups(0)) {
     int next_in_cycle = (gid * A)-m*(gid/B);
     if (next_in_cycle == gid)
@@ -599,7 +543,7 @@ if(tid < b){
       }
     }
   }
-}
+//}
 }
 
 // Transformation 100 

@@ -481,10 +481,10 @@ extern "C" bool cl_transpose(cl_command_queue queue, cl_mem src, int A, int a,
   }
 
   // fallback
-bool r;
-if(A*a<8000 && B*b<8000)
-  //bool r = cl_transpose_0100(queue, src, 1, A*a, B*b, 1, &et);
-  r = cl_transpose_0100(queue, src, 1, A*a, B*b, 1, &et);
+//bool r;
+//if(A*a<8000 && B*b<8000)
+  bool r = cl_transpose_0100(queue, src, 1, A*a, B*b, 1, &et);
+  //r = cl_transpose_0100(queue, src, 1, A*a, B*b, 1, &et);
 #ifdef LIBMARSHAL_OCL_PROFILE
   //std::cerr << "[cl_transpose] fallback; "<< 
   std::cerr<<
