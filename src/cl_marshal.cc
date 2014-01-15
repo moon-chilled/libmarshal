@@ -114,13 +114,13 @@ extern "C" bool cl_transpose_010_bs(cl_command_queue cl_queue,
 
   int sh_sz = a*B;
   cl::Kernel kernel(marshalprog->program,
-      sh_sz<224 ? "BS_marshal_vw" : (IS_POW2(a) ? "BS_marshal_power2":"BS_marshal"));
-      //sh_sz<224 ? "BS_marshal_vw" : "BS_marshal");
+      //sh_sz<224 ? "BS_marshal_vw" : (IS_POW2(a) ? "BS_marshal_power2":"BS_marshal"));
+      sh_sz<256 ? "BS_marshal_vw" : "BS_marshal");
   if (CL_SUCCESS != kernel.setArg(0, buffer))
     return true;
   cl_int err = kernel.setArg(1,
-      sh_sz<224 ? a: (IS_POW2(a)? count_zero_bits(a) : a));
-      //a);
+      //sh_sz<224 ? a: (IS_POW2(a)? count_zero_bits(a) : a));
+      a);
   if (err != CL_SUCCESS)
     return true;
   err = kernel.setArg(2, B);
@@ -130,29 +130,31 @@ extern "C" bool cl_transpose_010_bs(cl_command_queue cl_queue,
   // Select work-group size and virtual-SIMD-unit size
   int nr_threads;
   int warp_size;
-  // Block size (if block-centric)
-  if (sh_sz <= 768) nr_threads = 128;
-  else if (sh_sz > 768 && sh_sz <= 1792) nr_threads = 256;
-  else if (sh_sz > 1792 && sh_sz <= 3072) nr_threads = 512;
+  // Block size (according to tuning tests)
+  if (sh_sz <= 792) nr_threads = 128;
+  else if (sh_sz > 792 && sh_sz <= 1056) nr_threads = 192;
+  else if (sh_sz > 1056 && sh_sz <= 1680) nr_threads = 256;
+  else if (sh_sz > 1680 && sh_sz <= 2375) nr_threads = 384;
+  else if (sh_sz > 2375 && sh_sz <= 3552) nr_threads = 512;
   else nr_threads = 1024;
-  // Virtual warps
-  if (sh_sz < 4) warp_size = 1;
-  else if (sh_sz >= 4 && sh_sz < 8) warp_size = 2;
-  else if (sh_sz >= 8 && sh_sz < 16) warp_size = 4;
-  else if (sh_sz >= 16 && sh_sz < 32) warp_size = 8;
-  else if (sh_sz >= 32 && sh_sz < 96) warp_size = 16;
+  // Virtual warps (according to tuning tests)
+  if (sh_sz <= 1) warp_size = 1;
+  else if (sh_sz > 1 && sh_sz <= 6) warp_size = 2;
+  else if (sh_sz > 6 && sh_sz <= 12) warp_size = 4;
+  else if (sh_sz > 12 && sh_sz <= 24) warp_size = 8;
+  else if (sh_sz > 24 && sh_sz <= 48) warp_size = 16;
   else warp_size = 32;
 
   int warps = nr_threads / warp_size;
-  //err = kernel.setArg(3, sh_sz<224?(warps*B*(a+1)*sizeof(cl_float)):(B*(a+1)*sizeof(cl_float)), NULL);
-  err = kernel.setArg(3, sh_sz<224?(warps*B*a*sizeof(cl_float)):(IS_POW2(a)?(B*(a+1)*sizeof(cl_float)):B*a*sizeof(cl_float)), NULL);
+  err = kernel.setArg(3, sh_sz<256?(warps*B*a)*sizeof(cl_float):(B*a*sizeof(cl_float)), NULL);
+  //err = kernel.setArg(3, sh_sz<224?(warps*B*a*sizeof(cl_float)):(IS_POW2(a)?(B*(a+1)*sizeof(cl_float)):B*a*sizeof(cl_float)), NULL);
   err |= kernel.setArg(4, warp_size);
   err |= kernel.setArg(5, A);
   if (err != CL_SUCCESS)
     return true;
 
   // NDRange and kernel call
-  if (sh_sz < 224){
+  if (sh_sz < 256){
     std::cerr << "nr_threads_vwarp = " << warp_size << "\t"; // Print warp_size
     //cl::NDRange global((A/warps+1)*nr_threads), local(nr_threads);
     cl::NDRange global(std::min((A/warps+1)*nr_threads, (8192/warps+1)*nr_threads)), local(nr_threads);
@@ -288,31 +290,36 @@ bool _cl_transpose_0100(cl_command_queue cl_queue,
   // This version uses shared memory tiling
 #define WARPS 4
 #define WARP_SIZE 32
-  // Virtual warps
+  // Virtual warps (according to tuning tests)
   int v_warp_size;
-  if (b <= 1) v_warp_size = 1;
-  else if (b > 1 && b <= 2) v_warp_size = 2;
+  if (b <= 1) v_warp_size = 4;
+  else if (b > 1 && b <= 2) v_warp_size = 4;
   else if (b > 2 && b <= 4) v_warp_size = 4;
   else if (b > 4 && b <= 24) v_warp_size = 8;
   else if (b > 24 && b <= 48) v_warp_size = 16;
+  //else if (b > 48 && b <= 167) v_warp_size = 32;
+  //else if (b > 167 && b <= 223) v_warp_size = 64;
   else v_warp_size = 32;
-  // Block size (if block-centric)
+  // Block size (according to tuning tests)
   int block_size;
-  if (b <= 512) block_size = 128;
-  else if (b > 512 && b <= 1024) block_size = 256;
-  else if (b > 1024 && b <= 1536) block_size = 512;
+  if (b <= 511) block_size = 128;                   //512
+  else if (b > 511 && b <= 608) block_size = 192;  //512-1024
+  else if (b > 608 && b <= 1023) block_size = 256;  //512-1024
+  else if (b > 1023 && b <= 1215) block_size = 384;  //512-1024
+  else if (b > 1215 && b <= 2047) block_size = 512; //1024-1536
+  else if (b > 2047 && b <= 2304) block_size = 768; //1024-1536
   else block_size = 1024;
 
-  err = kernel.setArg(5, b<192?(b*WARPS*(WARP_SIZE/v_warp_size)*sizeof(cl_float)):(b*sizeof(cl_float)), NULL);
+  err = kernel.setArg(5, b<192?(b*(WARPS*WARP_SIZE/v_warp_size)*sizeof(cl_float)):(b*sizeof(cl_float)), NULL);
   if (err != CL_SUCCESS)
     return true;
-  err = kernel.setArg(6, b<192?(b*WARPS*(WARP_SIZE/v_warp_size)*sizeof(cl_float)):(b*sizeof(cl_float)), NULL);
+  err = kernel.setArg(6, b<192?(b*(WARPS*WARP_SIZE/v_warp_size)*sizeof(cl_float)):(b*sizeof(cl_float)), NULL);
   if (err != CL_SUCCESS)
     return true;
   err = kernel.setArg(7, v_warp_size);
   if (err != CL_SUCCESS)
     return true;
-  err = kernel.setArg(8, b<192?(WARPS*(WARP_SIZE/v_warp_size)*sizeof(cl_int)):(sizeof(cl_int)), NULL);
+  err = kernel.setArg(8, b<192?((WARPS*WARP_SIZE/v_warp_size)*sizeof(cl_int)):(sizeof(cl_int)), NULL);
   if (err != CL_SUCCESS)
     return true;
 
@@ -349,14 +356,14 @@ bool _cl_transpose_0100(cl_command_queue cl_queue,
 }
 
 extern "C" bool cl_transpose(cl_command_queue queue, cl_mem src, int A, int a,
-  int B, int b, int R, cl_ulong *elapsed_time) {
+  int B, int b, int R, int stages, cl_ulong *elapsed_time) {
   cl::Buffer buffer = cl::Buffer(src);
   clRetainMemObject(src);
   cl::Context context;
   if(buffer.getInfo(CL_MEM_CONTEXT, &context) != CL_SUCCESS)
     return true;
   cl_ulong et = 0;
-  if (0){
+  if (stages == 2){
     // Method 1: Aa >> Bb
     //T010_BS step1(a, B*b, context()); // Aa(Bb) to A(Bb)a
     //T010_PTTWAC step1p(a, B*b, context()); // Aa(Bb) to A(Bb)a
@@ -366,10 +373,14 @@ extern "C" bool cl_transpose(cl_command_queue queue, cl_mem src, int A, int a,
     if (((a*B*b+31)/32) + ((((a*B*b+31)/32)>>5)*1) <= 12288 && a < (12288 - 64)/2){
       bool r1;
       //if (step1.IsFeasible())
-      if ((IS_POW2(a) && B*b*(a+1) <= 12288) || (!IS_POW2(a) && B*b*a <= 12288))
+      if ((IS_POW2(a) && B*b*(a+1) <= 12288) || (!IS_POW2(a) && B*b*a <= 12288)){
+        std::cerr << "010_BS\t";
         r1 = cl_transpose_010_bs(queue, src, A, a, B*b, &et);
-      else
+      }
+      else{
+        std::cerr << "010_PTTWAC\t";
         r1 = cl_transpose_010_pttwac(queue, src, A, a, B*b, &et, R, 1);
+      }
       if (r1) {
         std::cerr << "cl_transpose: step 1 failed\n";
         return r1;
@@ -380,14 +391,14 @@ extern "C" bool cl_transpose(cl_command_queue queue, cl_mem src, int A, int a,
       }
 #ifdef LIBMARSHAL_OCL_PROFILE
       //std::cerr << "[cl_transpose] method 1; "<< 
-      std::cerr << 
-        float(A*a*B*b*2*sizeof(float))/et << "\n";
+      std::cerr << "2-stage\t" <<
+        float(A*a*B*b*2*sizeof(float))/et << "\t";
 #endif
       return r2;
     }
   }
   // 3-step approach
-  if (1) {
+  if (stages == 3) {
     // Method 2: a, b < TILE_SIZE 
     // AaBb to BAab (step 1)
     // to BAba (step 2)
@@ -408,7 +419,8 @@ extern "C" bool cl_transpose(cl_command_queue queue, cl_mem src, int A, int a,
       }
       bool r2;
       //if (step2.IsFeasible()){
-      if ((IS_POW2(a) && b*(a+1) <= 12288) || (!IS_POW2(a) && b*a <= 12288)){
+      //if ((IS_POW2(a) && b*(a+1) <= 12288) || (!IS_POW2(a) && b*a <= 12288)){
+      if (b*a <= 12288){
         std::cerr << "010_BS\t";
         r2 = cl_transpose_010_bs(queue, src, B*A, a, b, &et);
       }
@@ -427,14 +439,14 @@ extern "C" bool cl_transpose(cl_command_queue queue, cl_mem src, int A, int a,
       }
 #ifdef LIBMARSHAL_OCL_PROFILE
       //std::cerr << "[cl_transpose] method 2; "<< 
-      std::cerr<<
+      std::cerr<< "3-stage\t" <<
         float(A*a*B*b*2*sizeof(float))/et << "\n";
 #endif
       return r1 || r2 || r3;
     }
   }
   // 4-step approach
-  if (0) {
+  if (stages == 4) {
     // Karlsson's method: a, b < TILE_SIZE 
     // AaBb to ABab (0100)
     // ABab ABba    (0010)

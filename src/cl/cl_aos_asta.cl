@@ -361,7 +361,6 @@ void _transpose_100(__global float *input,
     warp_id = warp_id * vwarps_in_warp + vwarp_id;
   }
 
-//if(tid < b){
   for(int gid = group_id * warps_group + warp_id; gid < m;
     gid += get_num_groups(0) * warps_group) {
     int next_in_cycle = (gid * A)-m*(gid/B);
@@ -487,7 +486,6 @@ void _transpose_100(__global float *input,
     }
 #endif
   }
-//}
 }
 
 // Block-centric version
@@ -497,14 +495,27 @@ void _transpose_100_b(__global float *input,
   int m = A*B-1;
   int tid = get_local_id(0);
   int group_id = get_group_id(0);
+  int bid = group_id;
+  int num_groups = get_num_groups(0);
+  int group_size = get_local_size(0);
 
-//if(tid < b){
-  for(int gid = group_id; gid < m; gid += get_num_groups(0)) {
+  /*int warp_id, warps_group;
+  // Recalculate IDs if virtual warp is used
+  if (warp_size == 64){
+    tid = get_local_id(0) & 63;
+    warp_id = get_local_id(0) >> 6;
+    warps_group = get_local_size(0) >> 6;
+    bid = group_id * warps_group + warp_id;
+    num_groups = get_num_groups(0) * warps_group;
+    group_size = warp_size;
+  }*/
+
+  for(int gid = bid; gid < m; gid += num_groups) {
     int next_in_cycle = (gid * A)-m*(gid/B);
     if (next_in_cycle == gid)
       continue;
 
-    for(int i = tid; i < b; i += get_local_size(0)){
+    for(int i = tid; i < b; i += group_size){
       data[i] = input[gid*b+i];
     }
     barrier(CLK_LOCAL_MEM_FENCE|CLK_GLOBAL_MEM_FENCE);
@@ -520,7 +531,7 @@ void _transpose_100_b(__global float *input,
     barrier(CLK_LOCAL_MEM_FENCE|CLK_GLOBAL_MEM_FENCE);
     for (;done[0] == 0; 
         next_in_cycle = (next_in_cycle*A)-m*(next_in_cycle/B)) {
-      for(int i = tid; i < b; i += get_local_size(0)){
+      for(int i = tid; i < b; i += group_size){
         backup[i] = input[next_in_cycle*b+i];
       }
       barrier(CLK_LOCAL_MEM_FENCE|CLK_GLOBAL_MEM_FENCE);
@@ -534,16 +545,15 @@ void _transpose_100_b(__global float *input,
       }
       barrier(CLK_LOCAL_MEM_FENCE|CLK_GLOBAL_MEM_FENCE);
       if (!done[0]) {
-        for(int i = tid; i < b; i += get_local_size(0)){
+        for(int i = tid; i < b; i += group_size){
           input[next_in_cycle*b+i] = data[i];
         }
       }
-      for(int i = tid; i < b; i += get_local_size(0)){
+      for(int i = tid; i < b; i += group_size){
         data[i] = backup[i];
       }
     }
   }
-//}
 }
 
 // Transformation 100 
