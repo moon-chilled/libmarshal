@@ -114,12 +114,12 @@ extern "C" bool cl_transpose_010_bs(cl_command_queue cl_queue,
 
   int sh_sz = a*B;
   cl::Kernel kernel(marshalprog->program,
-      //sh_sz<224 ? "BS_marshal_vw" : (IS_POW2(a) ? "BS_marshal_power2":"BS_marshal"));
-      sh_sz<256 ? "BS_marshal_vw" : "BS_marshal");
+      //sh_sz<256 ? "BS_marshal_vw" : (IS_POW2(a) ? "BS_marshal_power2":"BS_marshal"));
+      sh_sz<256 ? "BS_marshal_vw" : "BS_marshal"); //289
   if (CL_SUCCESS != kernel.setArg(0, buffer))
     return true;
   cl_int err = kernel.setArg(1,
-      //sh_sz<224 ? a: (IS_POW2(a)? count_zero_bits(a) : a));
+      //sh_sz<256 ? a: (IS_POW2(a)? count_zero_bits(a) : a));
       a);
   if (err != CL_SUCCESS)
     return true;
@@ -131,22 +131,24 @@ extern "C" bool cl_transpose_010_bs(cl_command_queue cl_queue,
   int nr_threads;
   int warp_size;
   // Block size (according to tuning tests)
-  if (sh_sz <= 792) nr_threads = 128;
-  else if (sh_sz > 792 && sh_sz <= 1056) nr_threads = 192;
-  else if (sh_sz > 1056 && sh_sz <= 1680) nr_threads = 256;
-  else if (sh_sz > 1680 && sh_sz <= 2375) nr_threads = 384;
-  else if (sh_sz > 2375 && sh_sz <= 3552) nr_threads = 512;
+  if (sh_sz <= 792) nr_threads = 128; //832
+  else if (sh_sz > 792 && sh_sz <= 1056) nr_threads = 192; //1196
+  else if (sh_sz > 1056 && sh_sz <= 1680) nr_threads = 256; //1728
+  else if (sh_sz > 1680 && sh_sz <= 2375) nr_threads = 384; //2352
+  else if (sh_sz > 2375 && sh_sz <= 3552) nr_threads = 512; //3584
   else nr_threads = 1024;
   // Virtual warps (according to tuning tests)
   if (sh_sz <= 1) warp_size = 1;
   else if (sh_sz > 1 && sh_sz <= 6) warp_size = 2;
-  else if (sh_sz > 6 && sh_sz <= 12) warp_size = 4;
+  else if (sh_sz > 6 && sh_sz <= 12) warp_size = 4; //8
   else if (sh_sz > 12 && sh_sz <= 24) warp_size = 8;
   else if (sh_sz > 24 && sh_sz <= 48) warp_size = 16;
   else warp_size = 32;
+  //if (sh_sz == 12) warp_size = 4;
 
   int warps = nr_threads / warp_size;
   err = kernel.setArg(3, sh_sz<256?(warps*B*a)*sizeof(cl_float):(B*a*sizeof(cl_float)), NULL);
+  //err = kernel.setArg(3, sh_sz<256?(warps*B*(a+1))*sizeof(cl_float):(B*(a+1)*sizeof(cl_float)), NULL);
   //err = kernel.setArg(3, sh_sz<224?(warps*B*a*sizeof(cl_float)):(IS_POW2(a)?(B*(a+1)*sizeof(cl_float)):B*a*sizeof(cl_float)), NULL);
   err |= kernel.setArg(4, warp_size);
   err |= kernel.setArg(5, A);
@@ -312,22 +314,25 @@ bool _cl_transpose_0100(cl_command_queue cl_queue,
 
   err = kernel.setArg(5, b<192?(b*(WARPS*WARP_SIZE/v_warp_size)*sizeof(cl_float)):(b*sizeof(cl_float)), NULL);
   if (err != CL_SUCCESS)
-    return true;
+    return 9;//true;
   err = kernel.setArg(6, b<192?(b*(WARPS*WARP_SIZE/v_warp_size)*sizeof(cl_float)):(b*sizeof(cl_float)), NULL);
   if (err != CL_SUCCESS)
-    return true;
+    return 10;//true;
   err = kernel.setArg(7, v_warp_size);
   if (err != CL_SUCCESS)
-    return true;
+    return 11;//true;
   err = kernel.setArg(8, b<192?((WARPS*WARP_SIZE/v_warp_size)*sizeof(cl_int)):(sizeof(cl_int)), NULL);
   if (err != CL_SUCCESS)
-    return true;
+    return 12;//true;
 
   // NDRange and kernel call
   if (b < 192){
     std::cerr << "vwarp = " << v_warp_size << "\t"; // Print v_warp_size
     // NDRange - PPoPP'2014 + use of virtual warps
-    cl::NDRange global(std::min(a*B*WARP_SIZE, 1024*WARP_SIZE), WARPS, A),
+    long int aux = A==1?(B<1024?(long int)1024*WARP_SIZE:(long int)B*WARP_SIZE):(A*B<1024?(long int)1024*WARP_SIZE:(long int)B*WARP_SIZE);
+    //std::cerr << "a = " << a << " B = " << B << " A = " << A << " b = " << b << " min = " << (long int)std::min((long int)a*B*WARP_SIZE, B<1024?(long int)1024*WARP_SIZE:(long int)B*WARP_SIZE) << " aux = " << aux << "\t"; // Print v_warp_size
+    //cl::NDRange global(std::min((long int)a*B*WARP_SIZE, (long int)1024*WARP_SIZE), WARPS, A),
+    cl::NDRange global(std::min((long int)a*B*WARP_SIZE, aux), WARPS, A),
       local(WARP_SIZE, WARPS, 1);
     err = queue.enqueueNDRangeKernel(kernel, cl::NullRange, global, local,
       NULL, prof.GetEvent());
@@ -373,7 +378,9 @@ extern "C" bool cl_transpose(cl_command_queue queue, cl_mem src, int A, int a,
     if (((a*B*b+31)/32) + ((((a*B*b+31)/32)>>5)*1) <= 12288 && a < (12288 - 64)/2){
       bool r1;
       //if (step1.IsFeasible())
-      if ((IS_POW2(a) && B*b*(a+1) <= 12288) || (!IS_POW2(a) && B*b*a <= 12288)){
+      //if ((IS_POW2(a) && B*b*(a+1) <= 12288) || (!IS_POW2(a) && B*b*a <= 12288)){
+      //if ((IS_POW2(a) && B*b*(a+1) <= 12288) || (!IS_POW2(a) && B*b*(a+1) <= 12288)){
+      if (B*b*a <= 12288){
         std::cerr << "010_BS\t";
         r1 = cl_transpose_010_bs(queue, src, A, a, B*b, &et);
       }
@@ -392,8 +399,9 @@ extern "C" bool cl_transpose(cl_command_queue queue, cl_mem src, int A, int a,
 #ifdef LIBMARSHAL_OCL_PROFILE
       //std::cerr << "[cl_transpose] method 1; "<< 
       std::cerr << "2-stage\t" <<
-        float(A*a*B*b*2*sizeof(float))/et << "\t";
+        float(A*a*B*b*2*sizeof(float))/et << "\n";
 #endif
+      *elapsed_time = et;
       return r2;
     }
   }
@@ -421,6 +429,7 @@ extern "C" bool cl_transpose(cl_command_queue queue, cl_mem src, int A, int a,
       //if (step2.IsFeasible()){
       //if ((IS_POW2(a) && b*(a+1) <= 12288) || (!IS_POW2(a) && b*a <= 12288)){
       if (b*a <= 12288){
+      //if (b*(a+1) <= 12288){
         std::cerr << "010_BS\t";
         r2 = cl_transpose_010_bs(queue, src, B*A, a, b, &et);
       }
@@ -442,6 +451,7 @@ extern "C" bool cl_transpose(cl_command_queue queue, cl_mem src, int A, int a,
       std::cerr<< "3-stage\t" <<
         float(A*a*B*b*2*sizeof(float))/et << "\n";
 #endif
+      *elapsed_time = et;
       return r1 || r2 || r3;
     }
   }
@@ -488,6 +498,7 @@ extern "C" bool cl_transpose(cl_command_queue queue, cl_mem src, int A, int a,
       std::cerr<<
         float(A*a*B*b*2*sizeof(float))/et << "\n";
 #endif
+      *elapsed_time = et;
       return r1 || r2 || r3 || r4;
     }
   }
@@ -502,6 +513,7 @@ extern "C" bool cl_transpose(cl_command_queue queue, cl_mem src, int A, int a,
   std::cerr<<
     float(A*a*B*b*2*sizeof(float))/et << "\n";
 #endif
+  *elapsed_time = et;
   return r;
 }
 

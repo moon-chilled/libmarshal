@@ -172,6 +172,7 @@ __kernel void BS_marshal_power2 (__global float *input, int lg2_tile_size, int w
   }
 #endif
 }
+#undef ORIG
 
 // Converts input[A][a][B] to input[A][B][a]
 // Launch A blocks of NR_THREADS threads
@@ -184,7 +185,7 @@ __kernel void transpose_010_PTTWAC(__global float *input, int A,
   int sh_sz = R * ((a * B + 31) / 32);
   sh_sz += (sh_sz >> 5) * P; // Padding each 32 locations (Number of banks)
 
-#define PTTWAC_REMAP 0
+#define PTTWAC_REMAP 1
 #define P_IPT 0
 #if !P_IPT
   for (int id = tidx ; id < sh_sz; id += get_local_size(0)) {
@@ -487,6 +488,7 @@ void _transpose_100(__global float *input,
 #endif
   }
 }
+#undef ORIG2
 
 // Block-centric version
 void _transpose_100_b(__global float *input,

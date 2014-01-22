@@ -4,6 +4,7 @@
 #include <string>
 #include <vector>
 #include <math.h>
+#include <limits.h>
 #include "cl_marshal.h"
 #include "plan.hpp"
 #include "/usr/include/gsl/gsl_sort.h"
@@ -142,8 +143,8 @@ TEST_F(libmarshal_cl_test, bug537) {
   int ws[6] = {40, 62, 197, 215, 59, 39};
   int hs[6] = {11948, 17281, 35588, 44609, 90449, 49152};
   for (int i = 0; i < 6; i++)
-  //for (int t = 1; t <= 4096; t*=2) {
-  for (int t = 1; t <= 6; t++) {
+  for (int t = 1; t <= 4096; t*=2) {
+  //for (int t = 1; t <= 6; t++) {
     int w = ws[i];
     int h = (hs[i]+t-1)/t*t;
 
@@ -184,7 +185,7 @@ TEST_F(libmarshal_cl_test, bug537) {
       }
     }
     Transposition tx(w,h/t);
-    std::cerr << "Performance = " << float(2*h*w*sizeof(float)*N)/et;
+    std::cerr << "Throughput = " << float(2*h*w*sizeof(float)*N)/et;
     std::cerr << " GB/s\t";
     std::cerr << "Num cycles:"<<tx.GetNumCycles()<< "; percentage = " <<
       (float)tx.GetNumCycles()/(float)(h*w/t)*100 << "\n";
@@ -248,7 +249,7 @@ TEST_F(libmarshal_cl_test, bug536) {
             EXPECT_EQ(0, compare_output(dst_gpu, src, h*w));
           }
         }
-        std::cerr << "Performance = " << float(h*w*2*sizeof(float)*N) / et;
+        std::cerr << "Throughput = " << float(h*w*2*sizeof(float)*N) / et;
         std::cerr << " GB/s\t";
 
         Transposition tx(t,w);
@@ -317,31 +318,33 @@ TEST_F(libmarshal_cl_test, full) {
   // For skinny matrices
   //const int h_max = 1048576; const int h_min = 4096; //2^22 - 2^12
   //const int w_max = 64; const int w_min = 2;
-  //const int h_max = 999999; const int h_min = 9999; //Tests in Catanzaro's paper
-  //const int w_max = 31; const int w_min = 2;
+  //const int h_max = 10e6; const int h_min = 10000; //Tests in Catanzaro's paper
+  //const int w_max = 32; const int w_min = 2;
   // For general matrices
   //const int h_max = 6144; const int h_min = 1024; //2^13 - 2^10
   //const int w_max = 4096; const int w_min = 1536;
-  const int h_max = 19999; const int h_min = 1000; //Tests in Catanzaro's paper
-  const int w_max = 19999; const int w_min = 1000;
+  const int h_max = 20000; const int h_min = 1000; //Tests in Catanzaro's paper
+  //const int h_max = 2000; const int h_min = 500; //Slim matrices
+  const int w_max = 20000; const int w_min = 1000;
   //const int h_max = 19999; const int h_min = 1000;
   //const int w_max = 2000; const int w_min = 2;
   //const int h_max = 9999; const int h_min = 1000;
   //const int w_max = 9999; const int w_min = 1000;
 
-  srand(time(NULL));
-  for (int n = 0; n < 10; n++){
+  //srand(time(NULL));
+  for (int n = 24; n < 100; n++){
   // Generate random dimensions
-  //srand(n*time(NULL));
-  int h = rand() % (h_max-h_min+1) + h_min;
+  srand(n+1);
+  int h = rand() % (h_max-h_min) + h_min;
   //srand(n*2*time(NULL));
-  int w = rand() % (w_max-w_min+1) + w_min;
+  int w = rand() % (w_max-w_min) + w_min;
 #else 
   //int ws[] = {1800, 2500, 3200, 3900, 5100, 7200}; //Matrix sizes in PPoPP2014 paper
   //int hs[] = {7200, 5100, 4000, 3300, 2500, 1800};
-  int ws[] = {13788, 5396, 8884, 9703, 9789, 17084, 19193, 7391, 17853, 15257, 10148, 18801, 12624, 12918, 14858};
-  int hs[] = {16832, 18439, 15377, 19604, 12903, 2299, 1796, 6024, 18201, 7844, 9189, 12050, 10645, 7244, 11588};
-  for (int n = 0; n < 1; n++) {
+  int ws[] = {1009, 1317, 1277, 1051, 1006, 1523, 771, 5167, 13788, 5396, 8884, 9703, 9789, 17084, 19193, 7391, 17853, 15257, 10148, 18801, 12624, 12918, 14858};
+  int hs[] = {5912, 8392, 10088, 12384, 6186, 19964, 13722, 5501, 16832, 18439, 15377, 19604, 12903, 2299, 1796, 6024, 18201, 7844, 9189, 12050, 10645, 7244, 11588};
+
+  for (int n = 0; n < 6; n++) {
   int w = ws[n];
   int h = hs[n];
 #endif
@@ -373,8 +376,9 @@ TEST_F(libmarshal_cl_test, full) {
   printf("\n");
 #endif
 
-#define BRUTE 0
+#define BRUTE 1
 #if BRUTE
+  cl_ulong max_et = ULONG_MAX;
   for (int i = 0 ; i < hoptions.size(); i++) {
   //for (int i = 0 ; i < 1; i++) {
     //int A = h/hoptions[i], a = hoptions[i];
@@ -383,31 +387,41 @@ TEST_F(libmarshal_cl_test, full) {
     //for (int j = 0; j < 1; j++) {
       //int B = w/woptions[j], b = woptions[j];
       int B = w/woptions[wf_sorted[j]], b = woptions[wf_sorted[j]];
-      if (B > 5900) continue;
 #else
+#if 0
   // Heuristic used by Catanzaro et al. (PPoPP'2014)
-  /*int A, a, B, b;
+  int A, a, B, b;
   int i = 0;
   if (hoptions.size() == 1){
     a = 1; A = h;
   }
   else{
-    while (hoptions[hf_sorted[i]] <=72){ //110
+    while (hoptions[hf_sorted[i]] <=72){
       i++;
     }
-    a = hoptions[hf_sorted[i-1]]; A = h/a;
+    if (i > 0){
+      a = hoptions[hf_sorted[i-1]]; A = h/a;
+    }
+    else{
+      a = 1; A = h;
+    }
   }
   i = 0;
   if (woptions.size() == 1){
     b = 1; B = w;
   }
   else{
-    while (woptions[wf_sorted[i]] <=72){ //110
+    while (woptions[wf_sorted[i]] <=72){
       i++;
     }
-    b = woptions[wf_sorted[i-1]]; B = w/b;
-  }*/
-
+    if (i > 0){
+      b = woptions[wf_sorted[i-1]]; B = w/b;
+    }
+    else{
+      b = 1; B = w;
+    }
+  }
+#endif
 #if 0
   // Heu 2_3
   int A, a, B, b;
@@ -469,33 +483,6 @@ TEST_F(libmarshal_cl_test, full) {
     }
   }
   else{
-    /*//i = 0;
-    int k = 0;
-    for (int j = 0; j < hoptions.size(); j++)
-      //if (hoptions[hf_sorted[i]] <= 128)
-      //  i++;
-      if (hoptions[hf_sorted[k]] <= 128)
-        k++;
-    //if (i > 0){
-    //  a = hoptions[hf_sorted[i-1]]; A = h/a;
-    if (k > 0){
-      a = hoptions[hf_sorted[k-1]]; A = h/a;
-    }
-    else{
-      a = hoptions[hf_sorted[0]]; A = h/a;
-    }
-    i = 0;
-    for (int j = 0; j < woptions.size(); j++)
-      if (woptions[wf_sorted[j]] * a < 12288 && woptions[wf_sorted[j]] <= 128) //6144, 192
-        i++;
-    b = woptions[wf_sorted[i-1]]; B = w/b;
-    if (b * A < 12288 && b * A > b * a){ //6144
-      A = a; a = h/A;
-      for (int j = k-2; j >= 0; j--)
-        if (b * h/hoptions[hf_sorted[j]] < 6144){
-          a = h/hoptions[hf_sorted[j]]; A = h/a;
-        }
-    }*/
     // Heu 4
     int k = 0;
     for (int j = 0; j < woptions.size(); j++)
@@ -519,7 +506,7 @@ TEST_F(libmarshal_cl_test, full) {
     }
   }
 #endif
-#if 1
+#if 0
   int A = 0; int a = 0; int B = 0; int b = 0;
   struct int2{int x; int y;};
   int k = 0; int l = 0; int p = 0; 
@@ -612,15 +599,8 @@ do{
     }
   }
 
-  /*if (a <= 4 && A < (12288 - 64)/2){
-    a = A; A = h/a;
-  }
-  if (b <= 4 && b < (12288 - 64)/2){
-    b = B; B = w/b;
-  }*/
 #endif
 #endif
-      //if (B > 5900) continue;
 
       cl_int err;
       cl::Buffer d_dst = cl::Buffer(*context_, CL_MEM_READ_WRITE,
@@ -637,12 +617,16 @@ do{
       // 1 = Spreading factor, change if needed - JGL
       //r = cl_transpose((*queue_)(), d_dst(), A, a, B, b, 1, NULL); 
 
-#if 0
+    cl_ulong et = 0;
+
+    if(a >= 6 && a*B*b <= 12288){
+    //if(a >= 6 && (a+1)*B*b <= 12288){
+    //if(a*B*b <= 12288){
+    //if(a*B*b <= 0){
       std::cerr << "" << A << "," << a << ",";
       std::cerr << "" << B*b << ",";
 
       // Calculate spreading factor
-      //int S_f = (MAX_MEM-512) / (((a*b+31)/32) + ((((a*b+31)/32)>>5)*P));
       int S_f = MAX_MEM / (((a*B*b+31)/32) + ((((a*B*b+31)/32)>>5)*P));
       std::cerr << "S_f = " << S_f << ",";
       if (S_f < 2) S_f = 1;
@@ -653,7 +637,7 @@ do{
       else S_f = 32; // BS will be used
       std::cerr << "" << S_f << ",\t";
 
-      r = cl_transpose((*queue_)(), d_dst(), A, a, B, b, S_f, 2, NULL); 
+      r = cl_transpose((*queue_)(), d_dst(), A, a, B, b, S_f, 2, &et); 
 
       // This may fail
       EXPECT_EQ(false, r);
@@ -661,20 +645,14 @@ do{
         continue;
       // compute golden
       // [h/t][t][w] to [h/t][w][t]
-      cpu_aos_asta(src, dst, h, w, a);
+//      cpu_aos_asta(src, dst, h, w, a);
       // [h/t][w][t] to [h/t][t][w]
-      cpu_soa_asta(dst, src, w*a, A, a);
+//      cpu_soa_asta(dst, src, w*a, A, a);
       ASSERT_EQ(queue_->enqueueReadBuffer(d_dst, CL_TRUE, 0, sizeof(float)*h*w,
             dst_gpu), CL_SUCCESS);
-      EXPECT_EQ(0, compare_output(dst_gpu, src, h*w));
-
-      err = queue_->enqueueWriteBuffer(
-            d_dst, CL_TRUE, 0, sizeof(float)*h*w, src);
-      EXPECT_EQ(err, CL_SUCCESS);
-      if (err != CL_SUCCESS)
-        continue;
-#endif
-
+//      EXPECT_EQ(0, compare_output(dst_gpu, src, h*w));
+    }
+    else{
       std::cerr << "" << A << "," << a << ",";
       std::cerr << "" << B << "," << b <<",";
 
@@ -689,23 +667,27 @@ do{
       else S_f = 32; // BS will be used
       std::cerr << "" << S_f << ",\t";
 
-      r = cl_transpose((*queue_)(), d_dst(), A, a, B, b, S_f, 3, NULL); 
+      r = cl_transpose((*queue_)(), d_dst(), A, a, B, b, S_f, 3, &et); 
       // This may fail
       EXPECT_EQ(false, r);
       if (r != false)
         continue;
       // compute golden
       // [h/t][t][w] to [h/t][w][t]
-      cpu_aos_asta(src, dst, h, w, a);
+//      cpu_aos_asta(src, dst, h, w, a);
       // [h/t][w][t] to [h/t][t][w]
-      cpu_soa_asta(dst, src, w*a, A, a);
+//      cpu_soa_asta(dst, src, w*a, A, a);
       ASSERT_EQ(queue_->enqueueReadBuffer(d_dst, CL_TRUE, 0, sizeof(float)*h*w,
             dst_gpu), CL_SUCCESS);
-      EXPECT_EQ(0, compare_output(dst_gpu, src, h*w));
-
+//      EXPECT_EQ(0, compare_output(dst_gpu, src, h*w));
+    }
 #if BRUTE
+    if(et < max_et) max_et = et;
     }
   }
+  std::cerr << "" << h << "," << w << "\t";
+  std::cerr << "Max_Throughput = " << float(h*w*2*sizeof(float)) / max_et;
+  std::cerr << " GB/s\n";
 #endif
   free(src);
   free(dst);
