@@ -144,7 +144,6 @@ TEST_F(libmarshal_cl_test, bug537) {
   int hs[6] = {11948, 17281, 35588, 44609, 90449, 49152};
   for (int i = 0; i < 6; i++)
   for (int t = 1; t <= 4096; t*=2) {
-  //for (int t = 1; t <= 6; t++) {
     int w = ws[i];
     int h = (hs[i]+t-1)/t*t;
 
@@ -169,7 +168,6 @@ TEST_F(libmarshal_cl_test, bug537) {
     for (int n = 0; n < N+WARM_UP; n++) {
       if (n == WARM_UP)
         et = 0;
-      //bool r = cl_soa_asta_pttwac((*queue_)(), d_dst(), h, w, t);
       bool r = cl_transpose_100((*queue_)(), d_dst(), w, h/t, t, &et);
       EXPECT_EQ(oldref, GetCtxRef());
       EXPECT_EQ(oldqref, GetQRef());
@@ -265,10 +263,8 @@ TEST_F(libmarshal_cl_test, bug536) {
 }
 
 TEST_F(libmarshal_cl_test, bug533) {
-  //int w = 20;
   for (int w = 3; w <= 768; w*=4)
   for (int t=1; t<=8; t+=1) {
-    //int h = (100*100*130+t-1)/t*t;
     int h = (500/w+1)*(100*130+t-1)/t*t;
     std::cerr << "A = " << h/t << ", a = " << t << ", B = " << w << ", w*t = " << w*t << "\t";
     float *src = (float*)malloc(sizeof(float)*h*w);
@@ -310,84 +306,7 @@ void tile(int x) {
   std::cout << "\n";
 }
 
-TEST_F(libmarshal_cl_test, full) {
-  // dataset size from http://www8.cs.umu.se/research/uminf/reports/2009/001/part1.pdf
-  // figure 12
-#define RANDOM 1
-#if RANDOM
-  // For skinny matrices
-  //const int h_max = 1048576; const int h_min = 4096; //2^22 - 2^12
-  //const int w_max = 64; const int w_min = 2;
-  //const int h_max = 10e6; const int h_min = 10000; //Tests in Catanzaro's paper
-  //const int w_max = 32; const int w_min = 2;
-  // For general matrices
-  //const int h_max = 6144; const int h_min = 1024; //2^13 - 2^10
-  //const int w_max = 4096; const int w_min = 1536;
-  const int h_max = 20000; const int h_min = 1000; //Tests in Catanzaro's paper
-  //const int h_max = 2000; const int h_min = 500; //Slim matrices
-  const int w_max = 20000; const int w_min = 1000;
-  //const int h_max = 19999; const int h_min = 1000;
-  //const int w_max = 2000; const int w_min = 2;
-  //const int h_max = 9999; const int h_min = 1000;
-  //const int w_max = 9999; const int w_min = 1000;
-
-  //srand(time(NULL));
-  for (int n = 24; n < 100; n++){
-  // Generate random dimensions
-  srand(n+1);
-  int h = rand() % (h_max-h_min) + h_min;
-  //srand(n*2*time(NULL));
-  int w = rand() % (w_max-w_min) + w_min;
-#else 
-  //int ws[] = {1800, 2500, 3200, 3900, 5100, 7200}; //Matrix sizes in PPoPP2014 paper
-  //int hs[] = {7200, 5100, 4000, 3300, 2500, 1800};
-  int ws[] = {1009, 1317, 1277, 1051, 1006, 1523, 771, 5167, 13788, 5396, 8884, 9703, 9789, 17084, 19193, 7391, 17853, 15257, 10148, 18801, 12624, 12918, 14858};
-  int hs[] = {5912, 8392, 10088, 12384, 6186, 19964, 13722, 5501, 16832, 18439, 15377, 19604, 12903, 2299, 1796, 6024, 18201, 7844, 9189, 12050, 10645, 7244, 11588};
-
-  for (int n = 0; n < 6; n++) {
-  int w = ws[n];
-  int h = hs[n];
-#endif
-  std::cerr << "" << h << "," << w << "\t";
-
-  float *src = (float*)malloc(sizeof(float)*h*w);
-  float *dst = (float*)malloc(sizeof(float)*h*w);
-  float *dst_gpu = (float*)malloc(sizeof(float)*h*w);
-  generate_vector(src, h*w);
-
-  Factorize hf(h), wf(w);
-  hf.tiling_options();
-  wf.tiling_options();
-  std::vector<int> hoptions = hf.get_tile_sizes();
-  std::vector<int> woptions = wf.get_tile_sizes();
-  std::cerr << "" << hoptions.size() << "," << woptions.size() << "\t";
-
-#if 1
-  // Sort factors
-  //for(int x=0; x<hoptions.size(); x++) printf("%d ", hoptions[x]);
-  //printf("\n");
-  size_t hf_sorted[hoptions.size()];
-  size_t wf_sorted[woptions.size()];
-  gsl_sort_int_index((size_t *)hf_sorted, &hoptions[0], 1, hoptions.size());
-  for(int x=0; x<hoptions.size(); x++) printf("%d ", hoptions[hf_sorted[x]]);
-  printf("\n");
-  gsl_sort_int_index((size_t *)wf_sorted, &woptions[0], 1, woptions.size());
-  for(int x=0; x<woptions.size(); x++) printf("%d ", woptions[wf_sorted[x]]);
-  printf("\n");
-#endif
-
-#define BRUTE 1
-#if BRUTE
-  cl_ulong max_et = ULONG_MAX;
-  for (int i = 0 ; i < hoptions.size(); i++) {
-  //for (int i = 0 ; i < 1; i++) {
-    //int A = h/hoptions[i], a = hoptions[i];
-    int A = h/hoptions[hf_sorted[i]], a = hoptions[hf_sorted[i]];
-    for (int j = 0; j < woptions.size(); j++) {
-    //for (int j = 0; j < 1; j++) {
-      //int B = w/woptions[j], b = woptions[j];
-      int B = w/woptions[wf_sorted[j]], b = woptions[wf_sorted[j]];
-#else
+void Heuristic(int* Aout, int* aout, int* Bout, int* bout, size_t* hf_sorted, size_t* wf_sorted, std::vector<int> hoptions, std::vector<int> woptions, int h, int w){
 #if 0
   // Heuristic used by Catanzaro et al. (PPoPP'2014)
   int A, a, B, b;
@@ -422,96 +341,13 @@ TEST_F(libmarshal_cl_test, full) {
     }
   }
 #endif
-#if 0
-  // Heu 2_3
-  int A, a, B, b;
-  int i = 0;
-  if (hoptions.size() == 1){
-    if (hoptions[hf_sorted[0]] <= 6112){
-      a = h; A = 1;
-      i = 0;
-      for (int j = 0; j < woptions.size(); j++)
-        if (((woptions[wf_sorted[j]]*a+31)/32) + ((((woptions[wf_sorted[j]]*a+31)/32)>>5)*1) <= 12288)
-          i++;
-      if (i > 0){
-        b = woptions[wf_sorted[i-1]]; B = w/b;
-      }
-      else{
-        b = 1; B = w/b;
-      } 
-    }
-    else{
-      a = 1; A = h;
-      i = 0;
-      for (int j = 0; j < woptions.size(); j++)
-        if (woptions[wf_sorted[j]] * a < 12288)
-          i++;
-      if (i > 0){
-        b = woptions[wf_sorted[i-1]]; B = w/b;
-      }
-      else{
-        b = 1; B = w/b;
-      } 
-    }
-  }
-  else if (woptions.size() == 1){
-    if (woptions[wf_sorted[0]] <= 6112){
-      b = w; B = 1;
-      i = 0;
-      for (int j = 0; j < hoptions.size(); j++)
-        if (((hoptions[hf_sorted[j]]*b+31)/32) + ((((hoptions[hf_sorted[j]]*b+31)/32)>>5)*1) <= 12288)
-          i++;
-      if (i > 0){
-        a = hoptions[hf_sorted[i-1]]; A = h/a;
-      }
-      else{
-        a = 1; A = h/b;
-      } 
-    }
-    else{
-      b = 1; B = w;
-      i = 0;
-      for (int j = 0; j < hoptions.size(); j++)
-        if (hoptions[hf_sorted[j]] * b < 12288)
-          i++;
-      if (i > 0){
-        a = hoptions[hf_sorted[i-1]]; A = h/a;
-      }
-      else{
-        a = 1; A = h/b;
-      } 
-    }
-  }
-  else{
-    // Heu 4
-    int k = 0;
-    for (int j = 0; j < woptions.size(); j++)
-      if (woptions[wf_sorted[k]] < 32)
-        k++;
-    if (k > 0){
-      b = woptions[wf_sorted[k]]; B = w/b;
-    }
-    else{
-      b = woptions[wf_sorted[0]]; B = w/b;
-    }
-    i = 0;
-    for (int j = 0; j < hoptions.size(); j++)
-      if (hoptions[hf_sorted[j]] * b < 12288)
-        i++;
-    if (i > 0){
-      a = hoptions[hf_sorted[i-1]]; A = h/a;
-    }
-    else{
-      a = hoptions[hf_sorted[0]]; A = h/a;
-    }
-  }
-#endif
-#if 0
+#if 1
+  // Our heuristic
   int A = 0; int a = 0; int B = 0; int b = 0;
   struct int2{int x; int y;};
   int k = 0; int l = 0; int p = 0; 
   int2 maxtile; maxtile.x = 0; maxtile.y = 0;
-  int re = 0; int min_limit = 24; int done = 0; int max_limit = 3040;
+  int re = 0; int min_limit = 64; int done = 0; int max_limit = 3040; // 24
   int hoptions_good[hoptions.size()];
   int woptions_good[woptions.size()];
   int2 tileoptions[hoptions.size()*woptions.size()];
@@ -564,7 +400,7 @@ do{
           }}
     if (p == 0){
       min_limit -= 2;
-      max_limit += 256;
+      max_limit += 128; //256
     }
     if (done == 1){
       a = maxtile.x; A = h/a;
@@ -598,31 +434,100 @@ do{
       b = 1; B = w/b;
     }
   }
-
-#endif
 #endif
 
-      cl_int err;
-      cl::Buffer d_dst = cl::Buffer(*context_, CL_MEM_READ_WRITE,
-          sizeof(float)*h*w, NULL, &err);
-      ASSERT_EQ(err, CL_SUCCESS);
-      err = queue_->enqueueWriteBuffer(
-            d_dst, CL_TRUE, 0, sizeof(float)*h*w, src);
-      EXPECT_EQ(err, CL_SUCCESS);
-      if (err != CL_SUCCESS)
-        continue;
+  *Aout = A; *aout = a; *Bout = B; *bout = b;
+}
 
-      bool r = false;
-      //r = cl_transpose((*queue_)(), d_dst(), A, a, B, b);
-      // 1 = Spreading factor, change if needed - JGL
-      //r = cl_transpose((*queue_)(), d_dst(), A, a, B, b, 1, NULL); 
+TEST_F(libmarshal_cl_test, full) {
+#define RANDOM 1
+#if RANDOM
+  // Matrix sizes
+  // For general matrices
+  // Single precision
+  const int h_max = 20000; const int h_min = 1000;
+  const int w_max = 20000; const int w_min = 1000;
+  // Double precision
+  //const int h_max = 10000; const int h_min = 1000;
+  //const int w_max = 10000; const int w_min = 1000;
+  // For skinny matrices (AoS-SoA)
+  //const int h_max = 10e7; const int h_min = 10000;
+  //const int w_max = 32; const int w_min = 2;
 
+  for (int n = 0; n < 20; n++){
+  // Generate random dimensions
+  srand(n+1);
+  int h = rand() % (h_max-h_min) + h_min;
+  int w = rand() % (w_max-w_min) + w_min;
+#else 
+  int ws[] = {1800, 2500, 3200, 3900, 5100, 7200}; //Matrix sizes in PPoPP2014 paper
+  int hs[] = {7200, 5100, 4000, 3300, 2500, 1800};
+  for (int n = 0; n < 6; n++) {
+  int w = ws[n];
+  int h = hs[n];
+#endif
+
+  std::cerr << "" << h << "," << w << "\t";
+
+  float *src = (float*)malloc(sizeof(float)*h*w);
+  float *dst = (float*)malloc(sizeof(float)*h*w);
+  float *dst_gpu = (float*)malloc(sizeof(float)*h*w);
+  generate_vector(src, h*w);
+
+  Factorize hf(h), wf(w);
+  hf.tiling_options();
+  wf.tiling_options();
+  std::vector<int> hoptions = hf.get_tile_sizes();
+  std::vector<int> woptions = wf.get_tile_sizes();
+  std::cerr << "" << hoptions.size() << "," << woptions.size() << "\t";
+
+#if 1
+  // Sort factors
+  //for(int x=0; x<hoptions.size(); x++) printf("%d ", hoptions[x]);
+  //printf("\n");
+  size_t hf_sorted[hoptions.size()];
+  size_t wf_sorted[woptions.size()];
+  gsl_sort_int_index((size_t *)hf_sorted, &hoptions[0], 1, hoptions.size());
+  //for(int x=0; x<hoptions.size(); x++) printf("%d ", hoptions[hf_sorted[x]]);
+  //printf("\n");
+  gsl_sort_int_index((size_t *)wf_sorted, &woptions[0], 1, woptions.size());
+  //for(int x=0; x<woptions.size(); x++) printf("%d ", woptions[wf_sorted[x]]);
+  //printf("\n");
+#endif
+
+#define BRUTE 0
+#if BRUTE
+  // Brute-force search
+  cl_ulong max_et = ULONG_MAX;
+  for (int i = 0 ; i < hoptions.size(); i++) {
+  //for (int i = 0 ; i < 1; i++) {
+    //int A = h/hoptions[i], a = hoptions[i];
+    int A = h/hoptions[hf_sorted[i]], a = hoptions[hf_sorted[i]];
+    for (int j = 0; j < woptions.size(); j++) {
+    //for (int j = 0; j < 1; j++) {
+      //int B = w/woptions[j], b = woptions[j];
+      int B = w/woptions[wf_sorted[j]], b = woptions[wf_sorted[j]];
+#else
+  // Heuristic for determining tile dimensions
+  int A, a, B, b;
+  Heuristic(&A, &a, &B, &b, hf_sorted, wf_sorted, hoptions, woptions, h, w);
+#endif
+
+    cl_int err;
+    cl::Buffer d_dst = cl::Buffer(*context_, CL_MEM_READ_WRITE,
+        sizeof(float)*h*w, NULL, &err);
+    ASSERT_EQ(err, CL_SUCCESS);
+    err = queue_->enqueueWriteBuffer(
+          d_dst, CL_TRUE, 0, sizeof(float)*h*w, src);
+    EXPECT_EQ(err, CL_SUCCESS);
+    if (err != CL_SUCCESS)
+      continue;
+
+    bool r = false;
     cl_ulong et = 0;
 
     if(a >= 6 && a*B*b <= 12288){
     //if(a >= 6 && (a+1)*B*b <= 12288){
-    //if(a*B*b <= 12288){
-    //if(a*B*b <= 0){
       std::cerr << "" << A << "," << a << ",";
       std::cerr << "" << B*b << ",";
 
@@ -645,12 +550,12 @@ do{
         continue;
       // compute golden
       // [h/t][t][w] to [h/t][w][t]
-//      cpu_aos_asta(src, dst, h, w, a);
+      cpu_aos_asta(src, dst, h, w, a);
       // [h/t][w][t] to [h/t][t][w]
-//      cpu_soa_asta(dst, src, w*a, A, a);
+      cpu_soa_asta(dst, src, w*a, A, a);
       ASSERT_EQ(queue_->enqueueReadBuffer(d_dst, CL_TRUE, 0, sizeof(float)*h*w,
             dst_gpu), CL_SUCCESS);
-//      EXPECT_EQ(0, compare_output(dst_gpu, src, h*w));
+      EXPECT_EQ(0, compare_output(dst_gpu, src, h*w));
     }
     else{
       std::cerr << "" << A << "," << a << ",";
@@ -674,12 +579,12 @@ do{
         continue;
       // compute golden
       // [h/t][t][w] to [h/t][w][t]
-//      cpu_aos_asta(src, dst, h, w, a);
+      cpu_aos_asta(src, dst, h, w, a);
       // [h/t][w][t] to [h/t][t][w]
-//      cpu_soa_asta(dst, src, w*a, A, a);
+      cpu_soa_asta(dst, src, w*a, A, a);
       ASSERT_EQ(queue_->enqueueReadBuffer(d_dst, CL_TRUE, 0, sizeof(float)*h*w,
             dst_gpu), CL_SUCCESS);
-//      EXPECT_EQ(0, compare_output(dst_gpu, src, h*w));
+      EXPECT_EQ(0, compare_output(dst_gpu, src, h*w));
     }
 #if BRUTE
     if(et < max_et) max_et = et;
