@@ -193,6 +193,14 @@ TEST_F(libmarshal_cl_test, bug537) {
   }
 }
 
+#define SP 1 // SP = 1 -> Single Precision; SP = 0 -> Double Precision 
+// Shared memory in Fermi and Kepler is 48 KB, i.e., 12288 SP or 6144 DP.
+#if SP
+#define MAX_MEM 12288 // Use 4096 for other devices.
+#else
+#define MAX_MEM 6144 // Use 2048 for other devices.
+#endif
+
 TEST_F(libmarshal_cl_test, bug536) {
   int ws[6] = {40, 62, 197, 215, 59, 39};
   int hs[6] = {11948, 17281, 35588, 44609, 90449, 49152};
@@ -201,7 +209,6 @@ TEST_F(libmarshal_cl_test, bug536) {
     int w = ws[i];
     int h = (hs[i]+t-1)/t*t;
 
-#define MAX_MEM 12288 // Shared memory in Fermi and Kepler. Use 4096 for other devices.
 #define P 1 // Padding size
     bool r;
     for(int S_f = 1; S_f <= 32; S_f *=2){ // (Use S_f <= 1 for testing IPT) - S_f = Spreading factor
@@ -347,7 +354,12 @@ void Heuristic(int* Aout, int* aout, int* Bout, int* bout, size_t* hf_sorted, si
   struct int2{int x; int y;};
   int k = 0; int l = 0; int p = 0; 
   int2 maxtile; maxtile.x = 0; maxtile.y = 0;
-  int re = 0; int min_limit = 64; int done = 0; int max_limit = 3040; // 24
+  int re = 0; int min_limit = 64; int done = 0; 
+#if SP
+  int max_limit = 3040;
+#else
+  int max_limit = 1520;
+#endif
   int hoptions_good[hoptions.size()];
   int woptions_good[woptions.size()];
   int2 tileoptions[hoptions.size()*woptions.size()];
@@ -368,7 +380,7 @@ do{
   if (k > 0 && l > 0){
     for (int i = 0; i < k; i++)
       for (int j = 0; j < l; j++)
-        if (hoptions_good[i] * woptions_good[j] < 12288){ // Fits in local memory
+        if (hoptions_good[i] * woptions_good[j] < MAX_MEM){ // Fits in local memory
           tileoptions[p].x = hoptions_good[i]; 
           tileoptions[p].y = woptions_good[j];
           p++;
@@ -378,10 +390,10 @@ do{
       done = 1;
       int tilesize = tileoptions[j].x * tileoptions[j].y;
       int factor = 1;
-      if (tilesize < 768) factor = 16;
-      else if (tilesize >= 768 && tilesize < 1536) factor = 8;
-      else if (tilesize >= 1536 && tilesize < 3072) factor = 4;
-      else if (tilesize >= 3072 && tilesize < 6144) factor = 2;
+      if (tilesize < MAX_MEM/16) factor = 16;
+      else if (tilesize >= MAX_MEM/16 && tilesize < MAX_MEM/8) factor = 8;
+      else if (tilesize >= MAX_MEM/8 && tilesize < MAX_MEM/4) factor = 4;
+      else if (tilesize >= MAX_MEM/4 && tilesize < MAX_MEM/2) factor = 2;
       tilesize *= factor;
       if (tilesize > maxtile.x * maxtile.y * maxfactor){
         maxtile.x = tileoptions[j].x;
@@ -392,7 +404,7 @@ do{
     if (p == 0 && min_limit <= 0) // Does not fit in local memory: largest a and b possible
       for (int i = 0; i < k; i++)
         for (int j = re; j < l; j++){
-          if (((hoptions_good[i]*woptions_good[j]+31)/32) + ((((hoptions_good[i]*woptions_good[j]+31)/32)>>5)*1) <= 12288){
+          if (((hoptions_good[i]*woptions_good[j]+31)/32) + ((((hoptions_good[i]*woptions_good[j]+31)/32)>>5)*1) <= MAX_MEM){
             maxtile.x = hoptions_good[i];
             maxtile.y = woptions_good[j];
             re = j;
@@ -400,7 +412,11 @@ do{
           }}
     if (p == 0){
       min_limit -= 2;
+#if SP
       max_limit += 128; //256
+#else
+      max_limit += 256;
+#endif
     }
     if (done == 1){
       a = maxtile.x; A = h/a;
@@ -416,10 +432,18 @@ do{
   // None in the desired range
   if (done == 0){
     for (int j = 0; j < hoptions.size(); j++)
+#if SP
       if (hoptions[hf_sorted[j]] <= 6112)
+#else 
+      if (hoptions[hf_sorted[j]] <= 3056)
+#endif
         k++;
     for (int j = 0; j < woptions.size(); j++)
+#if SP
       if (woptions[wf_sorted[j]] <= 3000)
+#else
+      if (woptions[wf_sorted[j]] <= 1500)
+#endif
         l++;
     if (k > 0){
       a = hoptions[hf_sorted[k-1]]; A = h/a;
@@ -444,23 +468,26 @@ TEST_F(libmarshal_cl_test, full) {
 #if RANDOM
   // Matrix sizes
   // For general matrices
+#if SP
   // Single precision
   const int h_max = 20000; const int h_min = 1000;
   const int w_max = 20000; const int w_min = 1000;
+#else
   // Double precision
-  //const int h_max = 10000; const int h_min = 1000;
-  //const int w_max = 10000; const int w_min = 1000;
+  const int h_max = 10000; const int h_min = 1000;
+  const int w_max = 10000; const int w_min = 1000;
   // For skinny matrices (AoS-SoA)
   //const int h_max = 10e7; const int h_min = 10000;
   //const int w_max = 32; const int w_min = 2;
+#endif
 
-  for (int n = 0; n < 20; n++){
+  for (int n = 0; n < 10; n++){
   // Generate random dimensions
   srand(n+1);
   int h = rand() % (h_max-h_min) + h_min;
   int w = rand() % (w_max-w_min) + w_min;
 #else 
-  int ws[] = {1800, 2500, 3200, 3900, 5100, 7200}; //Matrix sizes in PPoPP2014 paper
+  int ws[] = {1800, 2500, 3200, 3900, 5100, 7200}; // Matrix sizes in PPoPP2014 paper
   int hs[] = {7200, 5100, 4000, 3300, 2500, 1800};
   for (int n = 0; n < 6; n++) {
   int w = ws[n];
@@ -501,11 +528,8 @@ TEST_F(libmarshal_cl_test, full) {
   cl_ulong max_et = ULONG_MAX;
   for (int i = 0 ; i < hoptions.size(); i++) {
   //for (int i = 0 ; i < 1; i++) {
-    //int A = h/hoptions[i], a = hoptions[i];
     int A = h/hoptions[hf_sorted[i]], a = hoptions[hf_sorted[i]];
     for (int j = 0; j < woptions.size(); j++) {
-    //for (int j = 0; j < 1; j++) {
-      //int B = w/woptions[j], b = woptions[j];
       int B = w/woptions[wf_sorted[j]], b = woptions[wf_sorted[j]];
 #else
   // Heuristic for determining tile dimensions
@@ -526,7 +550,7 @@ TEST_F(libmarshal_cl_test, full) {
     bool r = false;
     cl_ulong et = 0;
 
-    if(a >= 6 && a*B*b <= 12288){
+    if(a >= 6 && a*B*b <= MAX_MEM){
     //if(a >= 6 && (a+1)*B*b <= 12288){
       std::cerr << "" << A << "," << a << ",";
       std::cerr << "" << B*b << ",";
@@ -542,6 +566,7 @@ TEST_F(libmarshal_cl_test, full) {
       else S_f = 32; // BS will be used
       std::cerr << "" << S_f << ",\t";
 
+      // 2-stage approach
       r = cl_transpose((*queue_)(), d_dst(), A, a, B, b, S_f, 2, &et); 
 
       // This may fail
@@ -572,6 +597,7 @@ TEST_F(libmarshal_cl_test, full) {
       else S_f = 32; // BS will be used
       std::cerr << "" << S_f << ",\t";
 
+      // 3-stage approach
       r = cl_transpose((*queue_)(), d_dst(), A, a, B, b, S_f, 3, &et); 
       // This may fail
       EXPECT_EQ(false, r);
