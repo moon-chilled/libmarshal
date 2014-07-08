@@ -143,8 +143,8 @@ TEST_F(libmarshal_cl_test, bug537) {
   int ws[6] = {40, 62, 197, 215, 59, 39};
   int hs[6] = {11948, 17281, 35588, 44609, 90449, 49152};
   for (int i = 0; i < 6; i++)
-  //for (int t = 1; t <= 4096; t*=2) {
-  for (int t = 1; t <= 128; t*=2) {
+  for (int t = 1; t <= 4096; t*=2) {
+  //for (int t = 1; t <= 128; t*=2) {
     int w = ws[i];
     int h = (hs[i]+t-1)/t*t;
 
@@ -355,10 +355,12 @@ void Heuristic(int* Aout, int* aout, int* Bout, int* bout, size_t* hf_sorted, si
   struct int2{int x; int y;};
   int k = 0; int l = 0; int p = 0; 
   int2 maxtile; maxtile.x = 0; maxtile.y = 0;
-  int re = 0; int min_limit = 64; int done = 0; 
+  int re = 0; int done = 0; 
 #if SP
+  int min_limit = 24;
   int max_limit = 3040;
 #else
+  int min_limit = 48;
   int max_limit = 1520;
 #endif
   int hoptions_good[hoptions.size()];
@@ -482,7 +484,7 @@ TEST_F(libmarshal_cl_test, full) {
   //const int w_max = 32; const int w_min = 2;
 #endif
 
-  for (int n = 0; n < 10; n++){
+  for (int n = 0; n < 5000; n++){
   // Generate random dimensions
   srand(n+1);
   int h = rand() % (h_max-h_min) + h_min;

@@ -567,9 +567,28 @@ void _transpose_100_b(__global float *input,
     if (next_in_cycle == gid)
       continue;
 
+    /*for(int i = tid; i < b; i += group_size){
+      data[i] = input[gid*b+i];
+    }*/
+#if ORIG2
     for(int i = tid; i < b; i += group_size){
       data[i] = input[gid*b+i];
     }
+#else
+    float data1, data2, data3, data4, data5, data6;
+    int i = tid;
+    if(i < b) data1 = input[gid*b+i];
+    i += group_size;
+    if(i < b) data2 = input[gid*b+i];
+    i += group_size;
+    if(i < b) data3 = input[gid*b+i];
+    i += group_size;
+    if(i < b) data4 = input[gid*b+i];
+    i += group_size;
+    if(i < b) data5 = input[gid*b+i];
+    i += group_size;
+    if(i < b) data6 = input[gid*b+i];
+#endif
     barrier(CLK_LOCAL_MEM_FENCE|CLK_GLOBAL_MEM_FENCE);
     if (tid == 0){
       //make sure the read is not cached 
@@ -583,9 +602,28 @@ void _transpose_100_b(__global float *input,
     barrier(CLK_LOCAL_MEM_FENCE|CLK_GLOBAL_MEM_FENCE);
     for (;done[0] == 0; 
         next_in_cycle = (next_in_cycle*A)-m*(next_in_cycle/B)) {
+      /*for(int i = tid; i < b; i += group_size){
+        backup[i] = input[next_in_cycle*b+i];
+      }*/
+#if ORIG2
       for(int i = tid; i < b; i += group_size){
         backup[i] = input[next_in_cycle*b+i];
       }
+#else
+      float backup1, backup2, backup3, backup4, backup5, backup6;
+      i = tid;
+      if(i < b) backup1 = input[next_in_cycle*b+i];
+      i += group_size;
+      if(i < b) backup2 = input[next_in_cycle*b+i];
+      i += group_size;
+      if(i < b) backup3 = input[next_in_cycle*b+i];
+      i += group_size;
+      if(i < b) backup4 = input[next_in_cycle*b+i];
+      i += group_size;
+      if(i < b) backup5 = input[next_in_cycle*b+i];
+      i += group_size;
+      if(i < b) backup6 = input[next_in_cycle*b+i];
+#endif
       barrier(CLK_LOCAL_MEM_FENCE|CLK_GLOBAL_MEM_FENCE);
       if (tid == 0) {
         //done[0] = atom_xchg(finished+next_in_cycle, (int)1);
@@ -597,13 +635,49 @@ void _transpose_100_b(__global float *input,
       }
       barrier(CLK_LOCAL_MEM_FENCE|CLK_GLOBAL_MEM_FENCE);
       if (!done[0]) {
+        /*for(int i = tid; i < b; i += group_size){
+          input[next_in_cycle*b+i] = data[i];
+        }*/
+#if ORIG2
         for(int i = tid; i < b; i += group_size){
           input[next_in_cycle*b+i] = data[i];
         }
+#else
+        i = tid;
+        if(i < b) input[next_in_cycle*b+i] = data1;
+        i += group_size;
+        if(i < b) input[next_in_cycle*b+i] = data2;
+        i += group_size;
+        if(i < b) input[next_in_cycle*b+i] = data3;
+        i += group_size;
+        if(i < b) input[next_in_cycle*b+i] = data4;
+        i += group_size;
+        if(i < b) input[next_in_cycle*b+i] = data5;
+        i += group_size;
+        if(i < b) input[next_in_cycle*b+i] = data6;
+#endif
       }
+      /*for(int i = tid; i < b; i += group_size){
+        data[i] = backup[i];
+      }*/
+#if ORIG2
       for(int i = tid; i < b; i += group_size){
         data[i] = backup[i];
       }
+#else
+      i = tid;
+      if(i < b) data1 = backup1;
+      i += group_size;
+      if(i < b) data2 = backup2;
+      i += group_size;
+      if(i < b) data3 = backup3;
+      i += group_size;
+      if(i < b) data4 = backup4;
+      i += group_size;
+      if(i < b) data5 = backup5;
+      i += group_size;
+      if(i < b) data6 = backup6;
+#endif
     }
   }
 }
