@@ -143,7 +143,8 @@ TEST_F(libmarshal_cl_test, bug537) {
   int ws[6] = {40, 62, 197, 215, 59, 39};
   int hs[6] = {11948, 17281, 35588, 44609, 90449, 49152};
   for (int i = 0; i < 6; i++)
-  for (int t = 1; t <= 4096; t*=2) {
+  //for (int t = 1; t <= 4096; t*=2) {
+  for (int t = 1; t <= 128; t*=2) {
     int w = ws[i];
     int h = (hs[i]+t-1)/t*t;
 

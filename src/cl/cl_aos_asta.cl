@@ -398,13 +398,13 @@ void _transpose_100(__global float *input,
 #else
 
 #define N 16 // Narrowing: 16 for NVIDIA, 32 for AMD
-#define ORIG2 1
+#define ORIG2 0
 #if ORIG2
     for(int i = tid; i < b; i += warp_size){
       data[warp_id*b+i] = input[gid*b+i];
     }
 #else
-    int width = b<=warp_size?b:warp_size;
+    /*int width = b<=warp_size?b:warp_size;
     int warp_iter = warp_id;
     int width_rem = b;
     for(int i = tid; i < b; i += warp_size){
@@ -415,7 +415,20 @@ void _transpose_100(__global float *input,
         warp_iter += warps_group;
         width_rem -= width;
       }
-    }
+    }*/
+    float data1, data2, data3, data4, data5, data6;
+    int i = tid;
+    if(i < b) data1 = input[gid*b+i];
+    i += warp_size;
+    if(i < b) data2 = input[gid*b+i];
+    i += warp_size;
+    if(i < b) data3 = input[gid*b+i];
+    i += warp_size;
+    if(i < b) data4 = input[gid*b+i];
+    i += warp_size;
+    if(i < b) data5 = input[gid*b+i];
+    i += warp_size;
+    if(i < b) data6 = input[gid*b+i];
 #endif
     if (tid == 0){
       //make sure the read is not cached 
@@ -434,7 +447,7 @@ void _transpose_100(__global float *input,
         backup[warp_id*b+i] = input[next_in_cycle*b+i];
       }
 #else
-      warp_iter = warp_id;
+      /*warp_iter = warp_id;
       for(int i = tid; i < b; i += warp_size){
         if(b>warp_size && i-tid+warp_size>=b)
           backup[(warp_iter-warp_id)*width+warp_id*width_rem+tid] = input[next_in_cycle*b+i];
@@ -442,7 +455,20 @@ void _transpose_100(__global float *input,
           backup[warp_iter*width+tid] = input[next_in_cycle*b+i];
           warp_iter += warps_group;
         }
-      }
+      }*/
+      float backup1, backup2, backup3, backup4, backup5, backup6;
+      i = tid;
+      if(i < b) backup1 = input[next_in_cycle*b+i];
+      i += warp_size;
+      if(i < b) backup2 = input[next_in_cycle*b+i];
+      i += warp_size;
+      if(i < b) backup3 = input[next_in_cycle*b+i];
+      i += warp_size;
+      if(i < b) backup4 = input[next_in_cycle*b+i];
+      i += warp_size;
+      if(i < b) backup5 = input[next_in_cycle*b+i];
+      i += warp_size;
+      if(i < b) backup6 = input[next_in_cycle*b+i];
 #endif
       if (tid == 0) {
         //done[warp_id] = atom_xchg(finished+next_in_cycle, (int)1);
@@ -458,7 +484,7 @@ void _transpose_100(__global float *input,
           input[next_in_cycle*b+i] = data[warp_id*b+i];
         }
 #else
-        warp_iter = warp_id;
+        /*warp_iter = warp_id;
         for(int i = tid; i < b; i += warp_size){
           if(b>warp_size && i-tid+warp_size>=b)
             input[next_in_cycle*b+i] = data[(warp_iter-warp_id)*width+warp_id*width_rem+tid];
@@ -466,16 +492,27 @@ void _transpose_100(__global float *input,
             input[next_in_cycle*b+i] = data[warp_iter*width+tid];
             warp_iter += warps_group;
           }
-        }
+        }*/
+        i = tid;
+        if(i < b) input[next_in_cycle*b+i] = data1;
+        i += warp_size;
+        if(i < b) input[next_in_cycle*b+i] = data2;
+        i += warp_size;
+        if(i < b) input[next_in_cycle*b+i] = data3;
+        i += warp_size;
+        if(i < b) input[next_in_cycle*b+i] = data4;
+        i += warp_size;
+        if(i < b) input[next_in_cycle*b+i] = data5;
+        i += warp_size;
+        if(i < b) input[next_in_cycle*b+i] = data6;
 #endif
-
       }
 #if ORIG2
       for(int i = tid; i < b; i += warp_size){
         data[warp_id*b+i] = backup[warp_id*b+i];
       }
 #else 
-      warp_iter = warp_id;
+      /*warp_iter = warp_id;
       for(int i = tid; i < b; i += warp_size){
         if(b>warp_size && i-tid+warp_size>=b)
           data[(warp_iter-warp_id)*width+warp_id*width_rem+tid] = backup[(warp_iter-warp_id)*width+warp_id*width_rem+tid];
@@ -483,7 +520,19 @@ void _transpose_100(__global float *input,
           data[warp_iter*width+tid] = backup[warp_iter*width+tid];
           warp_iter += warps_group;
         }
-      }
+      }*/
+      i = tid;
+      if(i < b) data1 = backup1;
+      i += warp_size;
+      if(i < b) data2 = backup2;
+      i += warp_size;
+      if(i < b) data3 = backup3;
+      i += warp_size;
+      if(i < b) data4 = backup4;
+      i += warp_size;
+      if(i < b) data5 = backup5;
+      i += warp_size;
+      if(i < b) data6 = backup6;
 #endif
     }
 #endif
