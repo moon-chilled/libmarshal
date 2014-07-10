@@ -317,9 +317,15 @@ __kernel void transpose_100(__global float *input,
 //  get_local_size(0) == wavefront size;
 //  get_local_size(1) == number of warps
 #define P_IPT 0
+#define ORIG2 0 // 1 - Local memory tiling; 0 - Register tiling
+#if ORIG2
 void _transpose_100(__global float *input,
     int A, int B, int b, __global int *finished, volatile __local float *data,
     volatile __local float *backup, volatile __local int *done, const int warp_size) {
+#else
+void _transpose_100(__global float *input,
+    int A, int B, int b, __global int *finished, volatile __local int *done, const int warp_size) {
+#endif
   int m = A*B-1;
   int tid = get_local_id(0);
   int group_id = get_group_id(0);
@@ -398,24 +404,11 @@ void _transpose_100(__global float *input,
 #else
 
 #define N 16 // Narrowing: 16 for NVIDIA, 32 for AMD
-#define ORIG2 0
 #if ORIG2
     for(int i = tid; i < b; i += warp_size){
       data[warp_id*b+i] = input[gid*b+i];
     }
 #else
-    /*int width = b<=warp_size?b:warp_size;
-    int warp_iter = warp_id;
-    int width_rem = b;
-    for(int i = tid; i < b; i += warp_size){
-      if(b>warp_size && i-tid+warp_size>=b)
-        data[(warp_iter-warp_id)*width+warp_id*width_rem+tid] = input[gid*b+i];
-      else{
-        data[warp_iter*width+tid] = input[gid*b+i];
-        warp_iter += warps_group;
-        width_rem -= width;
-      }
-    }*/
     float data1, data2, data3, data4, data5, data6;
     int i = tid;
     if(i < b) data1 = input[gid*b+i];
@@ -447,15 +440,6 @@ void _transpose_100(__global float *input,
         backup[warp_id*b+i] = input[next_in_cycle*b+i];
       }
 #else
-      /*warp_iter = warp_id;
-      for(int i = tid; i < b; i += warp_size){
-        if(b>warp_size && i-tid+warp_size>=b)
-          backup[(warp_iter-warp_id)*width+warp_id*width_rem+tid] = input[next_in_cycle*b+i];
-        else{
-          backup[warp_iter*width+tid] = input[next_in_cycle*b+i];
-          warp_iter += warps_group;
-        }
-      }*/
       float backup1, backup2, backup3, backup4, backup5, backup6;
       i = tid;
       if(i < b) backup1 = input[next_in_cycle*b+i];
@@ -484,15 +468,6 @@ void _transpose_100(__global float *input,
           input[next_in_cycle*b+i] = data[warp_id*b+i];
         }
 #else
-        /*warp_iter = warp_id;
-        for(int i = tid; i < b; i += warp_size){
-          if(b>warp_size && i-tid+warp_size>=b)
-            input[next_in_cycle*b+i] = data[(warp_iter-warp_id)*width+warp_id*width_rem+tid];
-          else{
-            input[next_in_cycle*b+i] = data[warp_iter*width+tid];
-            warp_iter += warps_group;
-          }
-        }*/
         i = tid;
         if(i < b) input[next_in_cycle*b+i] = data1;
         i += warp_size;
@@ -512,15 +487,6 @@ void _transpose_100(__global float *input,
         data[warp_id*b+i] = backup[warp_id*b+i];
       }
 #else 
-      /*warp_iter = warp_id;
-      for(int i = tid; i < b; i += warp_size){
-        if(b>warp_size && i-tid+warp_size>=b)
-          data[(warp_iter-warp_id)*width+warp_id*width_rem+tid] = backup[(warp_iter-warp_id)*width+warp_id*width_rem+tid];
-        else{
-          data[warp_iter*width+tid] = backup[warp_iter*width+tid];
-          warp_iter += warps_group;
-        }
-      }*/
       i = tid;
       if(i < b) data1 = backup1;
       i += warp_size;
@@ -538,12 +504,17 @@ void _transpose_100(__global float *input,
 #endif
   }
 }
-#undef ORIG2
-
+//#undef ORIG2
+//#define ORIG2 0
 // Block-centric version
+#if ORIG2
 void _transpose_100_b(__global float *input,
     int A, int B, int b, __global int *finished, volatile __local float *data,
     volatile __local float *backup, volatile __local int *done, const int warp_size) {
+#else
+void _transpose_100_b(__global float *input,
+    int A, int B, int b, __global int *finished, volatile __local int *done, const int warp_size) {
+#endif
   int m = A*B-1;
   int tid = get_local_id(0);
   int group_id = get_group_id(0);
@@ -567,9 +538,6 @@ void _transpose_100_b(__global float *input,
     if (next_in_cycle == gid)
       continue;
 
-    /*for(int i = tid; i < b; i += group_size){
-      data[i] = input[gid*b+i];
-    }*/
 #if ORIG2
     for(int i = tid; i < b; i += group_size){
       data[i] = input[gid*b+i];
@@ -602,9 +570,6 @@ void _transpose_100_b(__global float *input,
     barrier(CLK_LOCAL_MEM_FENCE|CLK_GLOBAL_MEM_FENCE);
     for (;done[0] == 0; 
         next_in_cycle = (next_in_cycle*A)-m*(next_in_cycle/B)) {
-      /*for(int i = tid; i < b; i += group_size){
-        backup[i] = input[next_in_cycle*b+i];
-      }*/
 #if ORIG2
       for(int i = tid; i < b; i += group_size){
         backup[i] = input[next_in_cycle*b+i];
@@ -635,9 +600,6 @@ void _transpose_100_b(__global float *input,
       }
       barrier(CLK_LOCAL_MEM_FENCE|CLK_GLOBAL_MEM_FENCE);
       if (!done[0]) {
-        /*for(int i = tid; i < b; i += group_size){
-          input[next_in_cycle*b+i] = data[i];
-        }*/
 #if ORIG2
         for(int i = tid; i < b; i += group_size){
           input[next_in_cycle*b+i] = data[i];
@@ -657,9 +619,6 @@ void _transpose_100_b(__global float *input,
         if(i < b) input[next_in_cycle*b+i] = data6;
 #endif
       }
-      /*for(int i = tid; i < b; i += group_size){
-        data[i] = backup[i];
-      }*/
 #if ORIG2
       for(int i = tid; i < b; i += group_size){
         data[i] = backup[i];
@@ -683,6 +642,7 @@ void _transpose_100_b(__global float *input,
 }
 
 // Transformation 100 
+#if ORIG2
 __kernel void transpose_100(__global float *input,
     int A, int B, int b, __global int *finished, volatile __local float *data,
     volatile __local float *backup, int warp_size, volatile __local int *done) {
@@ -692,10 +652,17 @@ __kernel void transpose_100(__global float *input,
     //volatile __local int done[WARPS];
     _transpose_100(input, A, B, b, finished, data, backup, done, warp_size);
 #endif
-
 }
+#else
+// With register tiling
+__kernel void transpose_100(__global float *input,
+    int A, int B, int b, __global int *finished, int warp_size, volatile __local int *done) {
+    _transpose_100(input, A, B, b, finished, done, warp_size);
+}
+#endif
 
 // Transformation 0100, or AaBb to ABab
+#if ORIG2
 __kernel void transpose_0100(__global float *input,
     int A, int B, int b, __global int *finished, volatile __local float *data,
     volatile __local float *backup, int warp_size, volatile __local int *done) {
@@ -709,18 +676,38 @@ __kernel void transpose_0100(__global float *input,
   _transpose_100(input, A, B, b, finished, data, backup, done, warp_size);
 #endif
 }
+#else
+// With register tiling
+__kernel void transpose_0100(__global float *input,
+    int A, int B, int b, __global int *finished, int warp_size, volatile __local int *done) {
+  // for supporting transformation 0100
+  finished += get_group_id(2) * A * B;
+  input += get_group_id(2) * A * B * b;
+  _transpose_100(input, A, B, b, finished, done, warp_size);
+}
+#endif
 
 #undef P_IPT
 
 // Transformation 100 - Block-centric with shared memory tiling
+#if ORIG2
 __kernel void transpose_100_b(__global float *input,
     int A, int B, int b, __global int *finished, volatile __local float *data,
     volatile __local float *backup, int warp_size, volatile __local int *done) {
     _transpose_100_b(input, A, B, b, finished, data, backup, done, warp_size);
 
 }
+#else
+// With register tiling
+__kernel void transpose_100_b(__global float *input,
+    int A, int B, int b, __global int *finished, int warp_size, volatile __local int *done) {
+    _transpose_100_b(input, A, B, b, finished, done, warp_size);
+
+}
+#endif
 
 // Transformation 0100, or AaBb to ABab - Block-centric with shared memory tiling
+#if ORIG2
 __kernel void transpose_0100_b(__global float *input,
     int A, int B, int b, __global int *finished, volatile __local float *data,
     volatile __local float *backup, int warp_size, volatile __local int *done) {
@@ -729,4 +716,15 @@ __kernel void transpose_0100_b(__global float *input,
   input += get_group_id(2) * A * B * b;
   _transpose_100_b(input, A, B, b, finished, data, backup, done, warp_size);
 }
+#else
+// With register tiling
+__kernel void transpose_0100_b(__global float *input,
+    int A, int B, int b, __global int *finished, int warp_size, volatile __local int *done) {
+  // for supporting transformation 0100
+  finished += get_group_id(2) * A * B;
+  input += get_group_id(2) * A * B * b;
+  _transpose_100_b(input, A, B, b, finished, done, warp_size);
+}
+#endif
 
+#undef ORIG2

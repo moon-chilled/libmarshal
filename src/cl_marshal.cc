@@ -362,7 +362,9 @@ bool _cl_transpose_0100(cl_command_queue cl_queue,
   else block_size = 1024;
 #endif
 
+#define LOCALMEM_TILING 0
 #if SP
+#if LOCALMEM_TILING
   err = kernel.setArg(5, b<192?(b*(WARPS*WARP_SIZE/v_warp_size)*sizeof(cl_float)):(b*sizeof(cl_float)), NULL);
   if (err != CL_SUCCESS)
     return true;
@@ -376,10 +378,19 @@ bool _cl_transpose_0100(cl_command_queue cl_queue,
   if (err != CL_SUCCESS)
     return true;
 #else
-  err = kernel.setArg(5, b<96?(b*(WARPS*WARP_SIZE/v_warp_size)*sizeof(cl_float)):(b*sizeof(cl_float)), NULL);
+  err = kernel.setArg(5, v_warp_size);
   if (err != CL_SUCCESS)
     return true;
-  err = kernel.setArg(6, b<96?(b*(WARPS*WARP_SIZE/v_warp_size)*sizeof(cl_float)):(b*sizeof(cl_float)), NULL);
+  err = kernel.setArg(6, b<192?((WARPS*WARP_SIZE/v_warp_size)*sizeof(cl_int)):(sizeof(cl_int)), NULL);
+  if (err != CL_SUCCESS)
+    return true;
+#endif
+#else
+#if LOCALMEM_TILING
+  err = kernel.setArg(5, b<96?(b*(WARPS*WARP_SIZE/v_warp_size)*sizeof(cl_double)):(b*sizeof(cl_double)), NULL);
+  if (err != CL_SUCCESS)
+    return true;
+  err = kernel.setArg(6, b<96?(b*(WARPS*WARP_SIZE/v_warp_size)*sizeof(cl_double)):(b*sizeof(cl_double)), NULL);
   if (err != CL_SUCCESS)
     return true;
   err = kernel.setArg(7, v_warp_size);
@@ -388,6 +399,14 @@ bool _cl_transpose_0100(cl_command_queue cl_queue,
   err = kernel.setArg(8, b<96?((WARPS*WARP_SIZE/v_warp_size)*sizeof(cl_int)):(sizeof(cl_int)), NULL);
   if (err != CL_SUCCESS)
     return true;
+#else
+  err = kernel.setArg(5, v_warp_size);
+  if (err != CL_SUCCESS)
+    return true;
+  err = kernel.setArg(6, b<96?((WARPS*WARP_SIZE/v_warp_size)*sizeof(cl_int)):(sizeof(cl_int)), NULL);
+  if (err != CL_SUCCESS)
+    return true;
+#endif
 #endif
 
   // NDRange and kernel call
