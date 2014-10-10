@@ -24,7 +24,12 @@
 #pragma OPENCL EXTENSION cl_khr_global_int32_extended_atomics : enable
 #pragma OPENCL EXTENSION cl_khr_fp64 : enable
 
+#define NVIDIA 0
+#if NVIDIA
 #define WARP_SIZE 32
+#else
+#define WARP_SIZE 64
+#endif
 
 __kernel void mymemset (__global float *input) {
   input[get_global_id(0)] = 0.0f;
@@ -74,6 +79,14 @@ __kernel void BS_marshal_vw (__global float *input, int tile_size, int width,
   int m = width*tile_size-1;
   int group_id, tidx, warp_id, warps_group;
   // Recalculate IDs if virtual warp is used
+#if !NVIDIA
+  if (warp_size == 64){
+    tidx = get_local_id(0) & 63;
+    group_id = get_group_id(0);
+    warp_id = get_local_id(0) >> 6;
+    warps_group = get_local_size(0) >> 6;
+  }
+#endif
   if (warp_size == 32){
     tidx = get_local_id(0) & 31;
     group_id = get_group_id(0);
@@ -333,6 +346,15 @@ void _transpose_100(__global float *input,
   int warps_group = get_local_size(1);
 
   // Recalculate IDs if virtual warp is used
+#if !NVIDIA
+  if (warp_size == 32){
+    tid = get_local_id(0) & 31;
+    int vwarps_in_warp = WARP_SIZE / warp_size;
+    warps_group = warps_group * vwarps_in_warp;
+    int vwarp_id = get_local_id(0) >> 5;
+    warp_id = warp_id * vwarps_in_warp + vwarp_id;
+  }
+#endif
   if (warp_size == 16){
     tid = get_local_id(0) & 15;
     int vwarps_in_warp = WARP_SIZE / warp_size;
@@ -403,7 +425,11 @@ void _transpose_100(__global float *input,
 
 #else
 
+#if NVIDIA
 #define N 16 // Narrowing: 16 for NVIDIA, 32 for AMD
+#else
+#define N 32
+#endif
 #if ORIG2
     for(int i = tid; i < b; i += warp_size){
       data[warp_id*b+i] = input[gid*b+i];

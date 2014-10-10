@@ -39,7 +39,8 @@ void libmarshal_cl_test::SetUp(void) {
     std::cerr << "Platform size 0\n";
     return;
   }
-  int i = 0;
+  //int i = 0;
+  int i = 1;
   for (; i < platforms.size(); i++) {
     std::vector<cl::Device> devices;
     platforms[i].getDevices(CL_DEVICE_TYPE_GPU, &devices);
@@ -143,8 +144,8 @@ TEST_F(libmarshal_cl_test, bug537) {
   int ws[6] = {40, 62, 197, 215, 59, 39};
   int hs[6] = {11948, 17281, 35588, 44609, 90449, 49152};
   for (int i = 0; i < 6; i++)
-  for (int t = 1; t <= 4096; t*=2) {
-  //for (int t = 1; t <= 128; t*=2) {
+  //for (int t = 1; t <= 2048; t*=2) {	// 4096
+  for (int t = 1; t <= 1024; t*=2) {
     int w = ws[i];
     int h = (hs[i]+t-1)/t*t;
 
@@ -163,8 +164,8 @@ TEST_F(libmarshal_cl_test, bug537) {
           d_dst, CL_TRUE, 0, sizeof(float)*h*w, src), CL_SUCCESS);
     cl_uint oldref = GetCtxRef();
     // Change N to something > 1 to compute average performance (and use some WARM_UP runs).
-    const int N = 1;
-    const int WARM_UP = 0;
+    const int N = 4;
+    const int WARM_UP = 2;
     cl_ulong et = 0;
     for (int n = 0; n < N+WARM_UP; n++) {
       if (n == WARM_UP)
@@ -177,10 +178,10 @@ TEST_F(libmarshal_cl_test, bug537) {
             sizeof(float)*h*w, dst_gpu), CL_SUCCESS);
       if ((n % 2) == 0) {
         cpu_soa_asta(src, dst, h, w, t);
-        EXPECT_EQ(0, compare_output(dst_gpu, dst, h*w));
+        //EXPECT_EQ(0, compare_output(dst_gpu, dst, h*w));
       } else {
         cpu_soa_asta(dst, src, h, w, t);
-        EXPECT_EQ(0, compare_output(dst_gpu, src, h*w));
+        //EXPECT_EQ(0, compare_output(dst_gpu, src, h*w));
       }
     }
     Transposition tx(w,h/t);
@@ -194,12 +195,23 @@ TEST_F(libmarshal_cl_test, bug537) {
   }
 }
 
+#define NVIDIA 0
 #define SP 1 // SP = 1 -> Single Precision; SP = 0 -> Double Precision 
+
+#if NVIDIA
 // Shared memory in Fermi and Kepler is 48 KB, i.e., 12288 SP or 6144 DP.
 #if SP
 #define MAX_MEM 12288 // Use 4096 for other devices.
 #else
 #define MAX_MEM 6144 // Use 2048 for other devices.
+#endif
+#else
+// Local memory in AMD devices is 32 KB, i.e., 8192 SP or 4096 DP.
+#if SP
+#define MAX_MEM 8192 // Use 4096 for other devices.
+#else
+#define MAX_MEM 4096 // Use 2048 for other devices.
+#endif
 #endif
 
 TEST_F(libmarshal_cl_test, bug536) {
@@ -484,7 +496,8 @@ TEST_F(libmarshal_cl_test, full) {
   //const int w_max = 32; const int w_min = 2;
 #endif
 
-  for (int n = 0; n < 5000; n++){
+  for (int n = 0; n < 50; n++){
+  //for (int n = 805; n < 807; n++){
   // Generate random dimensions
   srand(n+1);
   int h = rand() % (h_max-h_min) + h_min;
@@ -552,7 +565,11 @@ TEST_F(libmarshal_cl_test, full) {
 
     bool r = false;
     cl_ulong et = 0;
+    // Change N to something > 1 to compute average performance (and use some WARM_UP runs).
+    const int N = 4;
+    const int WARM_UP = 2;
 
+if(a <= 1536 && b <= 1536){
     if(a >= 6 && a*B*b <= MAX_MEM){
     //if(a >= 6 && (a+1)*B*b <= 12288){
       std::cerr << "" << A << "," << a << ",";
@@ -570,20 +587,23 @@ TEST_F(libmarshal_cl_test, full) {
       std::cerr << "" << S_f << ",\t";
 
       // 2-stage approach
-      r = cl_transpose((*queue_)(), d_dst(), A, a, B, b, S_f, 2, &et); 
-
-      // This may fail
-      EXPECT_EQ(false, r);
-      if (r != false)
-        continue;
-      // compute golden
-      // [h/t][t][w] to [h/t][w][t]
-      cpu_aos_asta(src, dst, h, w, a);
-      // [h/t][w][t] to [h/t][t][w]
-      cpu_soa_asta(dst, src, w*a, A, a);
-      ASSERT_EQ(queue_->enqueueReadBuffer(d_dst, CL_TRUE, 0, sizeof(float)*h*w,
-            dst_gpu), CL_SUCCESS);
-      EXPECT_EQ(0, compare_output(dst_gpu, src, h*w));
+      for (int n = 0; n < N+WARM_UP; n++) {
+        if (n == WARM_UP)
+          et = 0;
+        r = cl_transpose((*queue_)(), d_dst(), A, a, B, b, S_f, 2, &et); 
+        // This may fail
+        EXPECT_EQ(false, r);
+        if (r != false)
+          continue;
+        ASSERT_EQ(queue_->enqueueReadBuffer(d_dst, CL_TRUE, 0, sizeof(float)*h*w,
+              dst_gpu), CL_SUCCESS);
+        // compute golden
+        // [h/t][t][w] to [h/t][w][t]
+        /*cpu_aos_asta(src, dst, h, w, a);
+        // [h/t][w][t] to [h/t][t][w]
+        cpu_soa_asta(dst, src, w*a, A, a);
+        EXPECT_EQ(0, compare_output(dst_gpu, src, h*w));*/
+      }
     }
     else{
       std::cerr << "" << A << "," << a << ",";
@@ -601,26 +621,34 @@ TEST_F(libmarshal_cl_test, full) {
       std::cerr << "" << S_f << ",\t";
 
       // 3-stage approach
-      r = cl_transpose((*queue_)(), d_dst(), A, a, B, b, S_f, 3, &et); 
-      // This may fail
-      EXPECT_EQ(false, r);
-      if (r != false)
-        continue;
-      // compute golden
-      // [h/t][t][w] to [h/t][w][t]
-      cpu_aos_asta(src, dst, h, w, a);
-      // [h/t][w][t] to [h/t][t][w]
-      cpu_soa_asta(dst, src, w*a, A, a);
-      ASSERT_EQ(queue_->enqueueReadBuffer(d_dst, CL_TRUE, 0, sizeof(float)*h*w,
-            dst_gpu), CL_SUCCESS);
-      EXPECT_EQ(0, compare_output(dst_gpu, src, h*w));
+      for (int n = 0; n < N+WARM_UP; n++) {
+        if (n == WARM_UP)
+          et = 0;
+        r = cl_transpose((*queue_)(), d_dst(), A, a, B, b, S_f, 3, &et);
+        // This may fail
+        EXPECT_EQ(false, r);
+        if (r != false)
+          continue;
+        ASSERT_EQ(queue_->enqueueReadBuffer(d_dst, CL_TRUE, 0, sizeof(float)*h*w,
+              dst_gpu), CL_SUCCESS);
+        // compute golden
+        // [h/t][t][w] to [h/t][w][t]
+        /*cpu_aos_asta(src, dst, h, w, a);
+        // [h/t][w][t] to [h/t][t][w]
+        cpu_soa_asta(dst, src, w*a, A, a);
+        EXPECT_EQ(0, compare_output(dst_gpu, src, h*w));*/
+      }
     }
+}
 #if BRUTE
     if(et < max_et) max_et = et;
     }
   }
   std::cerr << "" << h << "," << w << "\t";
   std::cerr << "Max_Throughput = " << float(h*w*2*sizeof(float)) / max_et;
+  std::cerr << " GB/s\n";
+#else
+  std::cerr << "Throughput = " << float(2*h*w*sizeof(float)*N)/et;
   std::cerr << " GB/s\n";
 #endif
   free(src);

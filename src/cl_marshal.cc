@@ -30,6 +30,7 @@
 #include <math.h>
 #include <stdio.h>
 
+#define NVIDIA 0
 // SP = 1 -> Single precision; SP = 0 -> Double precision
 #define SP 1
 
@@ -85,7 +86,11 @@ extern "C" void cl_marshal_finalize(void) {
   MarshalProg *marshalprog = MarshalProgSingleton::Instance();
   marshalprog->Finalize();
 }
+#if NVIDIA
 #define NR_THREADS 1024
+#else
+#define NR_THREADS 256
+#endif
 #define IS_POW2(x) (x && !(x &( x- 1)))
 //#define IS_POW2(x) 0
 // v: 32-bit word input to count zero bits on right
@@ -137,6 +142,7 @@ extern "C" bool cl_transpose_010_bs(cl_command_queue cl_queue,
   // Select work-group size and virtual-SIMD-unit size
   int nr_threads;
   int warp_size;
+#if NVIDIA
 #if SP
   // Block size (according to tuning tests)
   if (sh_sz <= 792) nr_threads = 128;
@@ -167,6 +173,37 @@ extern "C" bool cl_transpose_010_bs(cl_command_queue cl_queue,
   else if (sh_sz > 6 && sh_sz <= 12) warp_size = 8;
   else if (sh_sz > 12 && sh_sz <= 24) warp_size = 16;
   else warp_size = 32;
+#endif
+#else
+#if SP
+  // Block size (according to tuning tests)
+  if (sh_sz <= 256) nr_threads = 64;
+  else if (sh_sz > 256 && sh_sz <= 384) nr_threads = 128;
+  else if (sh_sz > 384 && sh_sz <= 576) nr_threads = 192;
+  else nr_threads = 256;
+  // Virtual warps (according to tuning tests)
+  if (sh_sz <= 1) warp_size = 1;
+  else if (sh_sz > 1 && sh_sz <= 2) warp_size = 2;
+  else if (sh_sz > 2 && sh_sz <= 12) warp_size = 4;
+  else if (sh_sz > 12 && sh_sz <= 24) warp_size = 8;
+  else if (sh_sz > 24 && sh_sz <= 48) warp_size = 16;
+  else if (sh_sz > 48 && sh_sz <= 96) warp_size = 32;
+  else warp_size = 64;
+#else
+  // Block size (according to tuning tests)
+  if (sh_sz <= 128) nr_threads = 64;
+  else if (sh_sz > 128 && sh_sz <= 192) nr_threads = 128;
+  else if (sh_sz > 192 && sh_sz <= 288) nr_threads = 192;
+  else nr_threads = 256;
+  // Virtual warps (according to tuning tests)
+  if (sh_sz <= 1) warp_size = 1;
+  else if (sh_sz > 1 && sh_sz <= 2) warp_size = 2;
+  else if (sh_sz > 2 && sh_sz <= 6) warp_size = 4;
+  else if (sh_sz > 6 && sh_sz <= 12) warp_size = 8;
+  else if (sh_sz > 12 && sh_sz <= 24) warp_size = 16;
+  else if (sh_sz > 24 && sh_sz <= 48) warp_size = 32;
+  else warp_size = 64;
+#endif
 #endif
 
   int warps = nr_threads / warp_size;
@@ -323,6 +360,7 @@ bool _cl_transpose_0100(cl_command_queue cl_queue,
 
   // Select work-group size and virtual-SIMD-unit size
   // This version uses shared memory tiling
+#if NVIDIA
 #define WARPS 4
 #define WARP_SIZE 32
 #if SP
@@ -360,6 +398,43 @@ bool _cl_transpose_0100(cl_command_queue cl_queue,
   else if (b > 607 && b <= 1023) block_size = 512; 
   else if (b > 1023 && b <= 1152) block_size = 768; 
   else block_size = 1024;
+#endif
+#else
+#define WARPS 1
+#define WARP_SIZE 64
+#if SP
+  // Virtual warps (according to tuning tests) -> Typically 3 x number_of_warps
+  int v_warp_size;
+  if (b <= 1) v_warp_size = 1;
+  else if (b > 1 && b <= 2) v_warp_size = 2;
+  else if (b > 2 && b <= 4) v_warp_size = 4;
+  else if (b > 4 && b <= 8) v_warp_size = 8;
+  else if (b > 8 && b <= 48) v_warp_size = 16;
+  else if (b > 48 && b <= 96) v_warp_size = 32;
+  else v_warp_size = 64;
+  // Block size (according to tuning tests)
+  int block_size;
+  if (b <= 192) block_size = 64;
+  else if (b > 192 && b <= 384) block_size = 128;
+  else if (b > 384 && b <= 576) block_size = 192;
+  else block_size = 256;
+#else
+  // Virtual warps (according to tuning tests)
+  int v_warp_size;
+  if (b <= 1) v_warp_size = 1;
+  else if (b > 1 && b <= 2) v_warp_size = 2;
+  else if (b > 2 && b <= 4) v_warp_size = 4;
+  else if (b > 4 && b <= 5) v_warp_size = 8;
+  else if (b > 5 && b <= 24) v_warp_size = 16;
+  else if (b > 24 && b <= 48) v_warp_size = 32;
+  else v_warp_size = 64;
+  // Block size (according to tuning tests)
+  int block_size;
+  if (b <= 96) block_size = 64;
+  else if (b > 96 && b <= 192) block_size = 128;
+  else if (b > 192 && b <= 288) block_size = 192;
+  else block_size = 256;
+#endif
 #endif
 
 #define LOCALMEM_TILING 0
@@ -448,11 +523,20 @@ bool _cl_transpose_0100(cl_command_queue cl_queue,
   return false;
 }
 
+#if NVIDIA
 // Shared memory in Fermi and Kepler is 48 KB, i.e., 12288 SP or 6144 DP.
 #if SP
 #define MAX_MEM 12288 // Use 4096 for other devices.
 #else
 #define MAX_MEM 6144 // Use 2048 for other devices.
+#endif
+#else
+// Local memory in AMD devices is 32 KB, i.e., 8192 SP or 4096 DP.
+#if SP
+#define MAX_MEM 8192 // Use 4096 for other devices.
+#else
+#define MAX_MEM 4096 // Use 2048 for other devices.
+#endif
 #endif
 
 extern "C" bool cl_transpose(cl_command_queue queue, cl_mem src, int A, int a,
@@ -485,10 +569,11 @@ extern "C" bool cl_transpose(cl_command_queue queue, cl_mem src, int A, int a,
       }
 #ifdef LIBMARSHAL_OCL_PROFILE
       //std::cerr << "[cl_transpose] method 1; "<< 
-      std::cerr << "2-stage\t" <<
-        float(A*a*B*b*2*sizeof(float))/et << "\n";
+      //std::cerr << "2-stage\t" <<
+      //  float(A*a*B*b*2*sizeof(float))/et << "\n";
+      std::cerr << "2-stage\t";
 #endif
-      *elapsed_time = et;
+      *elapsed_time += et;
       return r2;
     }
   }
@@ -524,10 +609,11 @@ extern "C" bool cl_transpose(cl_command_queue queue, cl_mem src, int A, int a,
       }
 #ifdef LIBMARSHAL_OCL_PROFILE
       //std::cerr << "[cl_transpose] method 2; "<< 
-      std::cerr<< "3-stage\t" <<
-        float(A*a*B*b*2*sizeof(float))/et << "\n";
+      //std::cerr<< "3-stage\t" <<
+      //  float(A*a*B*b*2*sizeof(float))/et << "\n";
+      std::cerr << "3-stage\t";
 #endif
-      *elapsed_time = et;
+      *elapsed_time += et;
       return r1 || r2 || r3;
     }
   }
@@ -574,7 +660,7 @@ extern "C" bool cl_transpose(cl_command_queue queue, cl_mem src, int A, int a,
       std::cerr<<
         float(A*a*B*b*2*sizeof(float))/et << "\n";
 #endif
-      *elapsed_time = et;
+      *elapsed_time += et;
       return r1 || r2 || r3 || r4;
     }
   }
