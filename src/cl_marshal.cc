@@ -30,7 +30,7 @@
 #include <math.h>
 #include <stdio.h>
 
-#define NVIDIA 0
+#define NVIDIA 1
 // SP = 1 -> Single precision; SP = 0 -> Double precision
 #define SP 1
 
@@ -223,7 +223,9 @@ extern "C" bool cl_transpose_010_bs(cl_command_queue cl_queue,
 #else
   if (sh_sz < 128){
 #endif
+#if PRINT
     std::cerr << "nr_threads_vwarp = " << warp_size << "\t"; // Print warp_size
+#endif
     //cl::NDRange global((A/warps+1)*nr_threads), local(nr_threads);
     cl::NDRange global(std::min((A/warps+1)*nr_threads, (8192/warps+1)*nr_threads)), local(nr_threads);
     err = queue.enqueueNDRangeKernel(kernel, cl::NullRange, global, local, NULL,
@@ -232,7 +234,9 @@ extern "C" bool cl_transpose_010_bs(cl_command_queue cl_queue,
       return true;
   }
   else{
+#if PRINT
     std::cerr << "nr_threads =  " << nr_threads << "\t"; // Print nr_threads
+#endif
     //cl::NDRange global(A*nr_threads), local(nr_threads);
     cl::NDRange global(std::min(A*nr_threads, 8192*nr_threads)), local(nr_threads);
     err = queue.enqueueNDRangeKernel(kernel, cl::NullRange, global, local, NULL,
@@ -292,7 +296,9 @@ extern "C" bool cl_transpose_010_pttwac(cl_command_queue cl_queue,
     return true;
 
   // NDRange and kernel call
+#if PRINT
   std::cerr << "NR_THREADS = " << NR_THREADS << "\t"; // Print nr_threads
+#endif
   cl::NDRange global(A*NR_THREADS), local(NR_THREADS);
   err = queue.enqueueNDRangeKernel(kernel, cl::NullRange, global, local, NULL,
     prof.GetEvent());
@@ -490,7 +496,9 @@ bool _cl_transpose_0100(cl_command_queue cl_queue,
 #else
   if (b < 96){
 #endif
+#if PRINT
     std::cerr << "vwarp = " << v_warp_size << "\t"; // Print v_warp_size
+#endif
     // NDRange - PPoPP'2014 + use of virtual warps
     long int aux = A==1?(B<1024?(long int)1024*WARP_SIZE:(long int)B*WARP_SIZE):(A*B<1024?(long int)1024*WARP_SIZE:(long int)B*WARP_SIZE);
     //std::cerr << "a = " << a << " B = " << B << " A = " << A << " b = " << b << " min = " << (long int)std::min((long int)a*B*WARP_SIZE, B<1024?(long int)1024*WARP_SIZE:(long int)B*WARP_SIZE) << " aux = " << aux << "\t"; // Print v_warp_size
@@ -503,7 +511,9 @@ bool _cl_transpose_0100(cl_command_queue cl_queue,
       return true;
   }
   else{
+#if PRINT
     std::cerr << "blocksize =  " << block_size << "\t"; // Print block size
+#endif
     // NDRange - Block-centric using shared memory tiling
     cl::NDRange global(std::min(a*B*block_size, 1024*block_size), 1, A),
       local(block_size, 1, 1);
@@ -549,7 +559,11 @@ extern "C" bool cl_transpose(cl_command_queue queue, cl_mem src, int A, int a,
   cl_ulong et = 0;
   if (stages == 2){
     // Method 1: Aa >> Bb
+#if SP
     if (((a*B*b+31)/32) + ((((a*B*b+31)/32)>>5)*1) <= MAX_MEM && a < (MAX_MEM - 64)/2){
+#else
+    if (((a*B*b+31)/32) + ((((a*B*b+31)/32)>>5)*1) <= MAX_MEM && a < (MAX_MEM - 32)/2){
+#endif
       bool r1;
       if (B*b*a <= MAX_MEM){
         std::cerr << "010_BS\t";
@@ -577,26 +591,66 @@ extern "C" bool cl_transpose(cl_command_queue queue, cl_mem src, int A, int a,
       return r2;
     }
   }
+  if (stages == 22){
+    // Method 1: Aa >> Bb
+#if SP
+    if (((b*A*a+31)/32) + ((((b*A*a+31)/32)>>5)*1) <= MAX_MEM && b < (MAX_MEM - 64)/2){
+#else
+    if (((b*A*a+31)/32) + ((((b*A*a+31)/32)>>5)*1) <= MAX_MEM && b < (MAX_MEM - 32)/2){
+#endif
+      bool r1 = cl_transpose_100(queue, src, A*a, B, b, &et);
+      if (r1) {
+        std::cerr << "cl_transpose: step 1 failed\n";
+      }
+      bool r2;
+      if (A*a*b <= MAX_MEM){
+        std::cerr << "010_BS\t";
+        r2 = cl_transpose_010_bs(queue, src, B, A*a, b, &et);
+      }
+      else{
+        std::cerr << "010_PTTWAC\t";
+        r2 = cl_transpose_010_pttwac(queue, src, B, A*a, b, &et, R, 1);
+      }
+      if (r2) {
+        std::cerr << "cl_transpose: step 2 failed\n";
+        return r2;
+      }
+#ifdef LIBMARSHAL_OCL_PROFILE
+      //std::cerr << "[cl_transpose] method 1; "<< 
+      //std::cerr << "2-stage2\t" <<
+      //  float(A*a*B*b*2*sizeof(float))/et << "\n";
+      std::cerr << "2-stage2\t";
+#endif
+      *elapsed_time += et;
+      return r2;
+    }
+  }
   // 3-step approach
   if (stages == 3) {
     // Method 2: a, b < TILE_SIZE 
     // AaBb to BAab (step 1)
     // to BAba (step 2)
     // to BbAa (step 3)
-    if (((a*b+31)/32) + ((((a*b+31)/32)>>5)*1) <= MAX_MEM && b < (MAX_MEM - 64)/2 && a < (MAX_MEM - 64)/2){
+#if SP
+    if (((a*b+31)/32) + ((((a*b+31)/32)>>5)*1) <= MAX_MEM && b < (MAX_MEM - 64)/2 && a < (MAX_MEM - 64)/2 && b > 1){
+#else
+    if (((a*b+31)/32) + ((((a*b+31)/32)>>5)*1) <= MAX_MEM && b < (MAX_MEM - 32)/2 && a < (MAX_MEM - 32)/2 && b > 1){
+#endif
       bool r1 = cl_transpose_100(queue, src, A*a, B, b, &et);
       if (r1) {
         std::cerr << "cl_transpose: step 2.1 failed\n";
         return r1;
       }
       bool r2;
-      if (b*a <= MAX_MEM){
-        std::cerr << "010_BS\t";
-        r2 = cl_transpose_010_bs(queue, src, B*A, a, b, &et);
-      }
-      else{
-        std::cerr << "010_PTTWAC\t";
-        r2 = cl_transpose_010_pttwac(queue, src, B*A, a, b, &et, R, 1);
+      if (a > 1){ // If A is prime, it is not necessary to run 010
+        if (b*a <= MAX_MEM){
+          std::cerr << "010_BS\t";
+          r2 = cl_transpose_010_bs(queue, src, B*A, a, b, &et);
+        }
+        else{
+          std::cerr << "010_PTTWAC\t";
+          r2 = cl_transpose_010_pttwac(queue, src, B*A, a, b, &et, R, 1);
+        }
       }
       if (r2) {
         std::cerr << "cl_transpose: step 2.2 failed\n";
@@ -669,10 +723,11 @@ extern "C" bool cl_transpose(cl_command_queue queue, cl_mem src, int A, int a,
   bool r = cl_transpose_0100(queue, src, 1, A*a, B*b, 1, &et);
 #ifdef LIBMARSHAL_OCL_PROFILE
   //std::cerr << "[cl_transpose] fallback; "<< 
-  std::cerr<<
-    float(A*a*B*b*2*sizeof(float))/et << "\n";
+  //std::cerr<<
+  //  float(A*a*B*b*2*sizeof(float))/et << "\n";
+  std::cerr << "Fallback\t"; 
 #endif
-  *elapsed_time = et;
+  *elapsed_time += et;
   return r;
 }
 

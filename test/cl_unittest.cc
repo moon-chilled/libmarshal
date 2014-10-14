@@ -39,8 +39,8 @@ void libmarshal_cl_test::SetUp(void) {
     std::cerr << "Platform size 0\n";
     return;
   }
-  //int i = 0;
-  int i = 1;
+  int i = 0;
+  //int i = 1;
   for (; i < platforms.size(); i++) {
     std::vector<cl::Device> devices;
     platforms[i].getDevices(CL_DEVICE_TYPE_GPU, &devices);
@@ -178,10 +178,10 @@ TEST_F(libmarshal_cl_test, bug537) {
             sizeof(float)*h*w, dst_gpu), CL_SUCCESS);
       if ((n % 2) == 0) {
         cpu_soa_asta(src, dst, h, w, t);
-        //EXPECT_EQ(0, compare_output(dst_gpu, dst, h*w));
+        EXPECT_EQ(0, compare_output(dst_gpu, dst, h*w));
       } else {
         cpu_soa_asta(dst, src, h, w, t);
-        //EXPECT_EQ(0, compare_output(dst_gpu, src, h*w));
+        EXPECT_EQ(0, compare_output(dst_gpu, src, h*w));
       }
     }
     Transposition tx(w,h/t);
@@ -195,7 +195,7 @@ TEST_F(libmarshal_cl_test, bug537) {
   }
 }
 
-#define NVIDIA 0
+#define NVIDIA 1
 #define SP 1 // SP = 1 -> Single Precision; SP = 0 -> Double Precision 
 
 #if NVIDIA
@@ -440,7 +440,11 @@ do{
   }
   else{
     min_limit -= 2;
+#if SP
     max_limit += 256;
+#else
+    max_limit += 256;
+#endif
   }
 }while(!done && min_limit >= 0);
   k = 0; l = 0;
@@ -448,16 +452,16 @@ do{
   if (done == 0){
     for (int j = 0; j < hoptions.size(); j++)
 #if SP
-      if (hoptions[hf_sorted[j]] <= 6112)
+      if (hoptions[hf_sorted[j]] <= (MAX_MEM - 64)/2) //6112
 #else 
-      if (hoptions[hf_sorted[j]] <= 3056)
+      if (hoptions[hf_sorted[j]] <= (MAX_MEM - 32)/2) //3056
 #endif
         k++;
     for (int j = 0; j < woptions.size(); j++)
 #if SP
-      if (woptions[wf_sorted[j]] <= 3000)
+      if (woptions[wf_sorted[j]] <= (MAX_MEM - 64)/4) //3000
 #else
-      if (woptions[wf_sorted[j]] <= 1500)
+      if (woptions[wf_sorted[j]] <= (MAX_MEM - 32)/4) //1500
 #endif
         l++;
     if (k > 0){
@@ -496,8 +500,7 @@ TEST_F(libmarshal_cl_test, full) {
   //const int w_max = 32; const int w_min = 2;
 #endif
 
-  for (int n = 0; n < 50; n++){
-  //for (int n = 805; n < 807; n++){
+  for (int n = 0; n < 5000; n++){
   // Generate random dimensions
   srand(n+1);
   int h = rand() % (h_max-h_min) + h_min;
@@ -543,7 +546,6 @@ TEST_F(libmarshal_cl_test, full) {
   // Brute-force search
   cl_ulong max_et = ULONG_MAX;
   for (int i = 0 ; i < hoptions.size(); i++) {
-  //for (int i = 0 ; i < 1; i++) {
     int A = h/hoptions[hf_sorted[i]], a = hoptions[hf_sorted[i]];
     for (int j = 0; j < woptions.size(); j++) {
       int B = w/woptions[wf_sorted[j]], b = woptions[wf_sorted[j]];
@@ -569,9 +571,14 @@ TEST_F(libmarshal_cl_test, full) {
     const int N = 4;
     const int WARM_UP = 2;
 
-if(a <= 1536 && b <= 1536){
-    if(a >= 6 && a*B*b <= MAX_MEM){
-    //if(a >= 6 && (a+1)*B*b <= 12288){
+//if(a <= 1536 && b <= 1536){
+    if((a >= 6 && a*B*b <= MAX_MEM) || b < 3 && ((a >= b && ((a*B*b+31)/32) + ((((a*B*b+31)/32)>>5)*1) <= MAX_MEM) || (A > b && ((A*B*b+31)/32) + ((((A*B*b+31)/32)>>5)*1) <= MAX_MEM))){
+      if (b < 3 && ((a*B*b+31)/32) + ((((a*B*b+31)/32)>>5)*1) > MAX_MEM){
+        int temp = A;
+        A = a;
+        a = temp;
+      }
+
       std::cerr << "" << A << "," << a << ",";
       std::cerr << "" << B*b << ",";
 
@@ -591,6 +598,46 @@ if(a <= 1536 && b <= 1536){
         if (n == WARM_UP)
           et = 0;
         r = cl_transpose((*queue_)(), d_dst(), A, a, B, b, S_f, 2, &et); 
+        // This may fail
+        EXPECT_EQ(false, r);
+        if (r != false)
+          continue;
+        ASSERT_EQ(queue_->enqueueReadBuffer(d_dst, CL_TRUE, 0, sizeof(float)*h*w,
+              dst_gpu), CL_SUCCESS);
+        // compute golden
+        // [h/t][t][w] to [h/t][w][t]
+        /*cpu_aos_asta(src, dst, h, w, a);
+        // [h/t][w][t] to [h/t][t][w]
+        cpu_soa_asta(dst, src, w*a, A, a);
+        EXPECT_EQ(0, compare_output(dst_gpu, src, h*w));*/
+      }
+    }
+    else if((b >= 6 && b*A*a <= MAX_MEM) || a < 3 && (b >= a && (((b*A*a+31)/32) + ((((b*A*a+31)/32)>>5)*1) <= MAX_MEM) || (B > a && ((B*A*a+31)/32) + ((((B*A*a+31)/32)>>5)*1) <= MAX_MEM))){
+      if (a < 3 && ((b*A*a+31)/32) + ((((b*A*a+31)/32)>>5)*1) > MAX_MEM){
+        int temp = B;
+        B = b;
+        b = temp;
+      }
+
+      std::cerr << "" << A*a << ",";
+      std::cerr << "" << B << "," << b << ",";
+
+      // Calculate spreading factor
+      int S_f = MAX_MEM / (((b*A*a+31)/32) + ((((b*A*a+31)/32)>>5)*P));
+      std::cerr << "S_f = " << S_f << ",";
+      if (S_f < 2) S_f = 1;
+      else if (S_f >=2 && S_f < 4) S_f = 2;
+      else if (S_f >=4 && S_f < 8) S_f = 4;
+      else if (S_f >=8 && S_f < 16) S_f = 8;
+      else if (S_f >=16 && S_f < 32) S_f = 8; //16;
+      else S_f = 32; // BS will be used
+      std::cerr << "" << S_f << ",\t";
+
+      // 2-stage approach
+      for (int n = 0; n < N+WARM_UP; n++) {
+        if (n == WARM_UP)
+          et = 0;
+        r = cl_transpose((*queue_)(), d_dst(), A, a, B, b, S_f, 22, &et);
         // This may fail
         EXPECT_EQ(false, r);
         if (r != false)
@@ -639,7 +686,7 @@ if(a <= 1536 && b <= 1536){
         EXPECT_EQ(0, compare_output(dst_gpu, src, h*w));*/
       }
     }
-}
+//}
 #if BRUTE
     if(et < max_et) max_et = et;
     }
