@@ -195,6 +195,7 @@ TEST_F(libmarshal_cl_test, bug537) {
   }
 }
 
+#define CHECK_RESULTS 0 
 #define NVIDIA 1
 #define SP 1 // SP = 1 -> Single Precision; SP = 0 -> Double Precision 
 
@@ -326,6 +327,9 @@ void tile(int x) {
   std::cout << "\n";
 }
 
+#include "heuristic.cc"
+#include "heuristic33.cc"
+#if 0
 void Heuristic(int* Aout, int* aout, int* Bout, int* bout, size_t* hf_sorted, size_t* wf_sorted, std::vector<int> hoptions, std::vector<int> woptions, int h, int w){
 #if 0
   // Heuristic used by Catanzaro et al. (PPoPP'2014)
@@ -481,6 +485,7 @@ do{
 
   *Aout = A; *aout = a; *Bout = B; *bout = b;
 }
+#endif 
 
 TEST_F(libmarshal_cl_test, full) {
 #define RANDOM 1
@@ -568,16 +573,17 @@ TEST_F(libmarshal_cl_test, full) {
     bool r = false;
     cl_ulong et = 0;
     // Change N to something > 1 to compute average performance (and use some WARM_UP runs).
-    const int N = 4;
+    const int N = 4; 
     const int WARM_UP = 2;
 
 //if(a <= 1536 && b <= 1536){
     if((a >= 6 && a*B*b <= MAX_MEM) || b < 3 && ((a >= b && ((a*B*b+31)/32) + ((((a*B*b+31)/32)>>5)*1) <= MAX_MEM) || (A > b && ((A*B*b+31)/32) + ((((A*B*b+31)/32)>>5)*1) <= MAX_MEM))){
-      if (b < 3 && ((a*B*b+31)/32) + ((((a*B*b+31)/32)>>5)*1) > MAX_MEM){
+      /*if (b < 3 && ((a*B*b+31)/32) + ((((a*B*b+31)/32)>>5)*1) > MAX_MEM){
         int temp = A;
         A = a;
         a = temp;
-      }
+      }*/
+      Heuristic33(&A, &a, &B, &b, hf_sorted, wf_sorted, hoptions, woptions, h, w);
 
       std::cerr << "" << A << "," << a << ",";
       std::cerr << "" << B*b << ",";
@@ -602,22 +608,25 @@ TEST_F(libmarshal_cl_test, full) {
         EXPECT_EQ(false, r);
         if (r != false)
           continue;
+#if CHECK_RESULTS
         ASSERT_EQ(queue_->enqueueReadBuffer(d_dst, CL_TRUE, 0, sizeof(float)*h*w,
               dst_gpu), CL_SUCCESS);
         // compute golden
         // [h/t][t][w] to [h/t][w][t]
-        /*cpu_aos_asta(src, dst, h, w, a);
+        cpu_aos_asta(src, dst, h, w, a);
         // [h/t][w][t] to [h/t][t][w]
         cpu_soa_asta(dst, src, w*a, A, a);
-        EXPECT_EQ(0, compare_output(dst_gpu, src, h*w));*/
+        EXPECT_EQ(0, compare_output(dst_gpu, src, h*w));
+#endif
       }
     }
     else if((b >= 6 && b*A*a <= MAX_MEM) || a < 3 && (b >= a && (((b*A*a+31)/32) + ((((b*A*a+31)/32)>>5)*1) <= MAX_MEM) || (B > a && ((B*A*a+31)/32) + ((((B*A*a+31)/32)>>5)*1) <= MAX_MEM))){
-      if (a < 3 && ((b*A*a+31)/32) + ((((b*A*a+31)/32)>>5)*1) > MAX_MEM){
+      /*if (a < 3 && ((b*A*a+31)/32) + ((((b*A*a+31)/32)>>5)*1) > MAX_MEM){
         int temp = B;
         B = b;
         b = temp;
-      }
+      }*/
+      Heuristic33(&B, &b, &A, &a, wf_sorted, hf_sorted, woptions, hoptions, w, h);
 
       std::cerr << "" << A*a << ",";
       std::cerr << "" << B << "," << b << ",";
@@ -642,14 +651,16 @@ TEST_F(libmarshal_cl_test, full) {
         EXPECT_EQ(false, r);
         if (r != false)
           continue;
+#if CHECK_RESULTS
         ASSERT_EQ(queue_->enqueueReadBuffer(d_dst, CL_TRUE, 0, sizeof(float)*h*w,
               dst_gpu), CL_SUCCESS);
         // compute golden
         // [h/t][t][w] to [h/t][w][t]
-        /*cpu_aos_asta(src, dst, h, w, a);
+        cpu_aos_asta(src, dst, h, w, a);
         // [h/t][w][t] to [h/t][t][w]
         cpu_soa_asta(dst, src, w*a, A, a);
-        EXPECT_EQ(0, compare_output(dst_gpu, src, h*w));*/
+        EXPECT_EQ(0, compare_output(dst_gpu, src, h*w));
+#endif
       }
     }
     else{
@@ -671,19 +682,24 @@ TEST_F(libmarshal_cl_test, full) {
       for (int n = 0; n < N+WARM_UP; n++) {
         if (n == WARM_UP)
           et = 0;
-        r = cl_transpose((*queue_)(), d_dst(), A, a, B, b, S_f, 3, &et);
+        if (a <= b)
+          r = cl_transpose((*queue_)(), d_dst(), A, a, B, b, S_f, 3, &et);
+        else
+          r = cl_transpose((*queue_)(), d_dst(), A, a, B, b, S_f, 32, &et);
         // This may fail
         EXPECT_EQ(false, r);
         if (r != false)
           continue;
+#if CHECK_RESULTS
         ASSERT_EQ(queue_->enqueueReadBuffer(d_dst, CL_TRUE, 0, sizeof(float)*h*w,
               dst_gpu), CL_SUCCESS);
         // compute golden
         // [h/t][t][w] to [h/t][w][t]
-        /*cpu_aos_asta(src, dst, h, w, a);
+        cpu_aos_asta(src, dst, h, w, a);
         // [h/t][w][t] to [h/t][t][w]
         cpu_soa_asta(dst, src, w*a, A, a);
-        EXPECT_EQ(0, compare_output(dst_gpu, src, h*w));*/
+        EXPECT_EQ(0, compare_output(dst_gpu, src, h*w));
+#endif
       }
     }
 //}

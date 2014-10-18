@@ -565,17 +565,19 @@ extern "C" bool cl_transpose(cl_command_queue queue, cl_mem src, int A, int a,
     if (((a*B*b+31)/32) + ((((a*B*b+31)/32)>>5)*1) <= MAX_MEM && a < (MAX_MEM - 32)/2){
 #endif
       bool r1;
-      if (B*b*a <= MAX_MEM){
-        std::cerr << "010_BS\t";
-        r1 = cl_transpose_010_bs(queue, src, A, a, B*b, &et);
-      }
-      else{
-        std::cerr << "010_PTTWAC\t";
-        r1 = cl_transpose_010_pttwac(queue, src, A, a, B*b, &et, R, 1);
-      }
-      if (r1) {
-        std::cerr << "cl_transpose: step 1 failed\n";
-        return r1;
+      if (a > 1){
+        if (B*b*a <= MAX_MEM){
+          std::cerr << "010_BS-";
+          r1 = cl_transpose_010_bs(queue, src, A, a, B*b, &et);
+        }
+        else{
+          std::cerr << "010_PTTWAC-";
+          r1 = cl_transpose_010_pttwac(queue, src, A, a, B*b, &et, R, 1);
+        }
+        if (r1) {
+          std::cerr << "cl_transpose: step 1 failed\n";
+          return r1;
+        }
       }
       bool r2 = cl_transpose_100(queue, src, A, B*b, a, &et);
       if (r2) {
@@ -585,7 +587,7 @@ extern "C" bool cl_transpose(cl_command_queue queue, cl_mem src, int A, int a,
       //std::cerr << "[cl_transpose] method 1; "<< 
       //std::cerr << "2-stage\t" <<
       //  float(A*a*B*b*2*sizeof(float))/et << "\n";
-      std::cerr << "2-stage\t";
+      std::cerr << "2.1-";
 #endif
       *elapsed_time += et;
       return r2;
@@ -603,23 +605,25 @@ extern "C" bool cl_transpose(cl_command_queue queue, cl_mem src, int A, int a,
         std::cerr << "cl_transpose: step 1 failed\n";
       }
       bool r2;
-      if (A*a*b <= MAX_MEM){
-        std::cerr << "010_BS\t";
-        r2 = cl_transpose_010_bs(queue, src, B, A*a, b, &et);
-      }
-      else{
-        std::cerr << "010_PTTWAC\t";
-        r2 = cl_transpose_010_pttwac(queue, src, B, A*a, b, &et, R, 1);
-      }
-      if (r2) {
-        std::cerr << "cl_transpose: step 2 failed\n";
-        return r2;
+      if (b > 1){
+        if (A*a*b <= MAX_MEM){
+          std::cerr << "010_BS\t";
+          r2 = cl_transpose_010_bs(queue, src, B, A*a, b, &et);
+        }
+        else{
+          std::cerr << "010_PTTWAC\t";
+          r2 = cl_transpose_010_pttwac(queue, src, B, A*a, b, &et, R, 1);
+        }
+        if (r2) {
+          std::cerr << "cl_transpose: step 2 failed\n";
+          return r2;
+        }
       }
 #ifdef LIBMARSHAL_OCL_PROFILE
       //std::cerr << "[cl_transpose] method 1; "<< 
       //std::cerr << "2-stage2\t" <<
       //  float(A*a*B*b*2*sizeof(float))/et << "\n";
-      std::cerr << "2-stage2\t";
+      std::cerr << "2.2-";
 #endif
       *elapsed_time += et;
       return r2;
@@ -632,9 +636,9 @@ extern "C" bool cl_transpose(cl_command_queue queue, cl_mem src, int A, int a,
     // to BAba (step 2)
     // to BbAa (step 3)
 #if SP
-    if (((a*b+31)/32) + ((((a*b+31)/32)>>5)*1) <= MAX_MEM && b < (MAX_MEM - 64)/2 && a < (MAX_MEM - 64)/2 && b > 1){
+    if (((a*b+31)/32) + ((((a*b+31)/32)>>5)*1) <= MAX_MEM && b < (MAX_MEM - 64)/2 && a < (MAX_MEM - 64)/2 && a > 1 && b > 1){
 #else
-    if (((a*b+31)/32) + ((((a*b+31)/32)>>5)*1) <= MAX_MEM && b < (MAX_MEM - 32)/2 && a < (MAX_MEM - 32)/2 && b > 1){
+    if (((a*b+31)/32) + ((((a*b+31)/32)>>5)*1) <= MAX_MEM && b < (MAX_MEM - 32)/2 && a < (MAX_MEM - 32)/2 && a > 1 && b > 1){
 #endif
       bool r1 = cl_transpose_100(queue, src, A*a, B, b, &et);
       if (r1) {
@@ -644,11 +648,11 @@ extern "C" bool cl_transpose(cl_command_queue queue, cl_mem src, int A, int a,
       bool r2;
       if (a > 1){ // If A is prime, it is not necessary to run 010
         if (b*a <= MAX_MEM){
-          std::cerr << "010_BS\t";
+          std::cerr << "010_BS-";
           r2 = cl_transpose_010_bs(queue, src, B*A, a, b, &et);
         }
         else{
-          std::cerr << "010_PTTWAC\t";
+          std::cerr << "010_PTTWAC-";
           r2 = cl_transpose_010_pttwac(queue, src, B*A, a, b, &et, R, 1);
         }
       }
@@ -665,7 +669,53 @@ extern "C" bool cl_transpose(cl_command_queue queue, cl_mem src, int A, int a,
       //std::cerr << "[cl_transpose] method 2; "<< 
       //std::cerr<< "3-stage\t" <<
       //  float(A*a*B*b*2*sizeof(float))/et << "\n";
-      std::cerr << "3-stage\t";
+      std::cerr << "3.1-";
+#endif
+      *elapsed_time += et;
+      return r1 || r2 || r3;
+    }
+  }
+  // 3-step approach
+  if (stages == 32) {
+    // Method 2: a, b < TILE_SIZE 
+    // AaBb to ABab (step 1)
+    // to ABba (step 2)
+    // to BbAa (step 3)
+#if SP
+    if (((a*b+31)/32) + ((((a*b+31)/32)>>5)*1) <= MAX_MEM && b < (MAX_MEM - 64)/2 && a < (MAX_MEM - 64)/2 && a > 1 && b > 1){
+#else
+    if (((a*b+31)/32) + ((((a*b+31)/32)>>5)*1) <= MAX_MEM && b < (MAX_MEM - 32)/2 && a < (MAX_MEM - 32)/2 && a > 1 && b > 1){
+#endif
+      bool r1 = cl_transpose_0100(queue, src, A, a, B, b, &et);
+      if (r1) {
+        std::cerr << "cl_transpose: step 3.2.1 failed\n";
+        return r1;
+      }
+      bool r2;
+      if (a > 1){ // If A is prime, it is not necessary to run 010
+        if (b*a <= MAX_MEM){
+          std::cerr << "010_BS-";
+          r2 = cl_transpose_010_bs(queue, src, A*B, a, b, &et);
+        }
+        else{
+          std::cerr << "010_PTTWAC-";
+          r2 = cl_transpose_010_pttwac(queue, src, A*B, a, b, &et, R, 1);
+        }
+      }
+      if (r2) {
+        std::cerr << "cl_transpose: step 3.2.2 failed\n";
+        return r2;
+      }
+      bool r3 = cl_transpose_100(queue, src, A, B*b, a, &et);
+      if (r3) {
+        std::cerr << "cl_transpose: step 3.2.3 failed\n";
+        return r3;
+      }
+#ifdef LIBMARSHAL_OCL_PROFILE
+      //std::cerr << "[cl_transpose] method 2; "<< 
+      //std::cerr<< "3-stage2\t" <<
+      //  float(A*a*B*b*2*sizeof(float))/et << "\n";
+      std::cerr << "3.2-";
 #endif
       *elapsed_time += et;
       return r1 || r2 || r3;
@@ -725,7 +775,7 @@ extern "C" bool cl_transpose(cl_command_queue queue, cl_mem src, int A, int a,
   //std::cerr << "[cl_transpose] fallback; "<< 
   //std::cerr<<
   //  float(A*a*B*b*2*sizeof(float))/et << "\n";
-  std::cerr << "Fallback\t"; 
+  std::cerr << "Fallback-"; 
 #endif
   *elapsed_time += et;
   return r;
