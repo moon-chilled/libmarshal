@@ -195,7 +195,7 @@ TEST_F(libmarshal_cl_test, bug537) {
   }
 }
 
-#define CHECK_RESULTS 0 
+#define CHECK_RESULTS 1 
 #define NVIDIA 1
 #define SP 1 // SP = 1 -> Single Precision; SP = 0 -> Double Precision 
 
@@ -329,163 +329,6 @@ void tile(int x) {
 
 #include "heuristic.cc"
 #include "heuristic33.cc"
-#if 0
-void Heuristic(int* Aout, int* aout, int* Bout, int* bout, size_t* hf_sorted, size_t* wf_sorted, std::vector<int> hoptions, std::vector<int> woptions, int h, int w){
-#if 0
-  // Heuristic used by Catanzaro et al. (PPoPP'2014)
-  int A, a, B, b;
-  int i = 0;
-  if (hoptions.size() == 1){
-    a = 1; A = h;
-  }
-  else{
-    while (hoptions[hf_sorted[i]] <=72){
-      i++;
-    }
-    if (i > 0){
-      a = hoptions[hf_sorted[i-1]]; A = h/a;
-    }
-    else{
-      a = 1; A = h;
-    }
-  }
-  i = 0;
-  if (woptions.size() == 1){
-    b = 1; B = w;
-  }
-  else{
-    while (woptions[wf_sorted[i]] <=72){
-      i++;
-    }
-    if (i > 0){
-      b = woptions[wf_sorted[i-1]]; B = w/b;
-    }
-    else{
-      b = 1; B = w;
-    }
-  }
-#endif
-#if 1
-  // Our heuristic
-  int A = 0; int a = 0; int B = 0; int b = 0;
-  struct int2{int x; int y;};
-  int k = 0; int l = 0; int p = 0; 
-  int2 maxtile; maxtile.x = 0; maxtile.y = 0;
-  int re = 0; int done = 0; 
-#if SP
-  int min_limit = 24;
-  int max_limit = 3040;
-#else
-  int min_limit = 48;
-  int max_limit = 1520;
-#endif
-  int hoptions_good[hoptions.size()];
-  int woptions_good[woptions.size()];
-  int2 tileoptions[hoptions.size()*woptions.size()];
-do{
-  k = 0; l = 0; p = 0; re = 0;
-  // Desired minimum and maximum for a and b
-  for (int j = 0; j < hoptions.size(); j++)
-    if (hoptions[hf_sorted[j]] >= min_limit && hoptions[hf_sorted[j]] <= max_limit){
-      hoptions_good[k] = hoptions[hf_sorted[j]];
-      k++;
-    }
-  for (int jj = 0; jj < woptions.size(); jj++)
-    if (woptions[wf_sorted[jj]] >= min_limit && woptions[wf_sorted[jj]] <= max_limit){
-      woptions_good[l] = woptions[wf_sorted[jj]];
-      l++;
-    }
-  // Two in the desired range
-  if (k > 0 && l > 0){
-    for (int i = 0; i < k; i++)
-      for (int j = 0; j < l; j++)
-        if (hoptions_good[i] * woptions_good[j] < MAX_MEM){ // Fits in local memory
-          tileoptions[p].x = hoptions_good[i]; 
-          tileoptions[p].y = woptions_good[j];
-          p++;
-        }
-    int maxfactor = 1;
-    for (int j = 0; j < p; j++){ // Use as much local memory as possible
-      done = 1;
-      int tilesize = tileoptions[j].x * tileoptions[j].y;
-      int factor = 1;
-      if (tilesize < MAX_MEM/16) factor = 16;
-      else if (tilesize >= MAX_MEM/16 && tilesize < MAX_MEM/8) factor = 8;
-      else if (tilesize >= MAX_MEM/8 && tilesize < MAX_MEM/4) factor = 4;
-      else if (tilesize >= MAX_MEM/4 && tilesize < MAX_MEM/2) factor = 2;
-      tilesize *= factor;
-      if (tilesize > maxtile.x * maxtile.y * maxfactor){
-        maxtile.x = tileoptions[j].x;
-        maxtile.y = tileoptions[j].y;
-        maxfactor = factor;
-      }
-    }
-    if (p == 0 && min_limit <= 0) // Does not fit in local memory: largest a and b possible
-      for (int i = 0; i < k; i++)
-        for (int j = re; j < l; j++){
-          if (((hoptions_good[i]*woptions_good[j]+31)/32) + ((((hoptions_good[i]*woptions_good[j]+31)/32)>>5)*1) <= MAX_MEM){
-            maxtile.x = hoptions_good[i];
-            maxtile.y = woptions_good[j];
-            re = j;
-            done = 1;
-          }}
-    if (p == 0){
-      min_limit -= 2;
-#if SP
-      max_limit += 128; //256
-#else
-      max_limit += 256;
-#endif
-    }
-    if (done == 1){
-      a = maxtile.x; A = h/a;
-      b = maxtile.y; B = w/b;
-    }
-  }
-  else{
-    min_limit -= 2;
-#if SP
-    max_limit += 256;
-#else
-    max_limit += 256;
-#endif
-  }
-}while(!done && min_limit >= 0);
-  k = 0; l = 0;
-  // None in the desired range
-  if (done == 0){
-    for (int j = 0; j < hoptions.size(); j++)
-#if SP
-      if (hoptions[hf_sorted[j]] <= (MAX_MEM - 64)/2) //6112
-#else 
-      if (hoptions[hf_sorted[j]] <= (MAX_MEM - 32)/2) //3056
-#endif
-        k++;
-    for (int j = 0; j < woptions.size(); j++)
-#if SP
-      if (woptions[wf_sorted[j]] <= (MAX_MEM - 64)/4) //3000
-#else
-      if (woptions[wf_sorted[j]] <= (MAX_MEM - 32)/4) //1500
-#endif
-        l++;
-    if (k > 0){
-      a = hoptions[hf_sorted[k-1]]; A = h/a;
-    }
-    else{
-      a = 1; A = h/a;
-    }
-    if (l > 0){
-      b = woptions[wf_sorted[l-1]]; B = w/b;
-    }
-    else{
-      b = 1; B = w/b;
-    }
-  }
-#endif
-
-  *Aout = A; *aout = a; *Bout = B; *bout = b;
-}
-#endif 
 
 TEST_F(libmarshal_cl_test, full) {
 #define RANDOM 1
@@ -505,7 +348,7 @@ TEST_F(libmarshal_cl_test, full) {
   //const int w_max = 32; const int w_min = 2;
 #endif
 
-  for (int n = 0; n < 5000; n++){
+  for (int n = 12; n < 16; n++){
   // Generate random dimensions
   srand(n+1);
   int h = rand() % (h_max-h_min) + h_min;
@@ -520,17 +363,43 @@ TEST_F(libmarshal_cl_test, full) {
 
   std::cerr << "" << h << "," << w << "\t";
 
+  std::vector<int> hoptions;
+  std::vector<int> woptions;
+  int pad_h, pad_w = 0;
+  bool done_h, done_w = false;
+  //printf("%d %d %s %s\n", pad_h, pad_w, done_h ? "true" : "false", done_w ? "true" : "false");
+  do{
+    // Factorize dimensions
+    Factorize hf(h), wf(w);
+    hf.tiling_options();
+    wf.tiling_options();
+    hoptions = hf.get_tile_sizes();
+    woptions = wf.get_tile_sizes();
+    std::cerr << "" << hoptions.size() << "," << woptions.size() << "\t";
+
+    // Pad h
+    if (hoptions.size() < 1){
+      pad_h++;
+      h++;
+    }
+    else done_h = true;
+
+    // Pad w
+    if (woptions.size() < 5){
+      pad_w++;
+      w++;
+    }
+    else done_w = true;
+
+  }while(!done_h || !done_w);
+
+  std::cerr << "percent_pad " << ((float)((w-(w-pad_w))*100)/(float)(w-pad_w)) << "%\t";
+  std::cerr << "percent_unpad " << ((float)((h-(h-pad_h))*100)/(float)(h-pad_h)) << "%\t";
+
   float *src = (float*)malloc(sizeof(float)*h*w);
   float *dst = (float*)malloc(sizeof(float)*h*w);
   float *dst_gpu = (float*)malloc(sizeof(float)*h*w);
-  generate_vector(src, h*w);
-
-  Factorize hf(h), wf(w);
-  hf.tiling_options();
-  wf.tiling_options();
-  std::vector<int> hoptions = hf.get_tile_sizes();
-  std::vector<int> woptions = wf.get_tile_sizes();
-  std::cerr << "" << hoptions.size() << "," << woptions.size() << "\t";
+  generate_vector(src, (h - pad_h) * (w - pad_w));
 
 #if 1
   // Sort factors
@@ -542,8 +411,8 @@ TEST_F(libmarshal_cl_test, full) {
   //for(int x=0; x<hoptions.size(); x++) printf("%d ", hoptions[hf_sorted[x]]);
   //printf("\n");
   gsl_sort_int_index((size_t *)wf_sorted, &woptions[0], 1, woptions.size());
-  //for(int x=0; x<woptions.size(); x++) printf("%d ", woptions[wf_sorted[x]]);
-  //printf("\n");
+  for(int x=0; x<woptions.size(); x++) printf("%d ", woptions[wf_sorted[x]]);
+  printf("\n");
 #endif
 
 #define BRUTE 0
@@ -558,23 +427,27 @@ TEST_F(libmarshal_cl_test, full) {
   // Heuristic for determining tile dimensions
   int A, a, B, b;
   Heuristic(&A, &a, &B, &b, hf_sorted, wf_sorted, hoptions, woptions, h, w);
+  std::cerr << "" << A << "," << a << ",";
+  std::cerr << "" << B << "," << b <<",";
 #endif
 
-    cl_int err;
-    cl::Buffer d_dst = cl::Buffer(*context_, CL_MEM_READ_WRITE,
-        sizeof(float)*h*w, NULL, &err);
-    ASSERT_EQ(err, CL_SUCCESS);
-    err = queue_->enqueueWriteBuffer(
-          d_dst, CL_TRUE, 0, sizeof(float)*h*w, src);
-    EXPECT_EQ(err, CL_SUCCESS);
-    if (err != CL_SUCCESS)
-      continue;
+  cl_int err;
+  cl::Buffer d_dst = cl::Buffer(*context_, CL_MEM_READ_WRITE,
+      sizeof(float)*h*w, NULL, &err);
+  ASSERT_EQ(err, CL_SUCCESS);
+  err = queue_->enqueueWriteBuffer(
+        d_dst, CL_TRUE, 0, sizeof(float)*h*w, src);
+  EXPECT_EQ(err, CL_SUCCESS);
+  if (err != CL_SUCCESS)
+    continue;
 
-    bool r = false;
-    cl_ulong et = 0;
-    // Change N to something > 1 to compute average performance (and use some WARM_UP runs).
-    const int N = 4; 
-    const int WARM_UP = 2;
+  bool r = false;
+  cl_ulong et = 0;
+  cl_ulong et2 = 0;
+  cl_ulong et3 = 0;
+  // Change N to something > 1 to compute average performance (and use some WARM_UP runs).
+  const int N = 4; 
+  const int WARM_UP = 2;
 
 //if(a <= 1536 && b <= 1536){
     if((a >= 6 && a*B*b <= MAX_MEM) || b < 3 && ((a >= b && ((a*B*b+31)/32) + ((((a*B*b+31)/32)>>5)*1) <= MAX_MEM) || (A > b && ((A*B*b+31)/32) + ((((A*B*b+31)/32)>>5)*1) <= MAX_MEM))){
@@ -609,14 +482,14 @@ TEST_F(libmarshal_cl_test, full) {
         if (r != false)
           continue;
 #if CHECK_RESULTS
-        ASSERT_EQ(queue_->enqueueReadBuffer(d_dst, CL_TRUE, 0, sizeof(float)*h*w,
+        ASSERT_EQ(queue_->enqueueReadBuffer(d_dst, CL_TRUE, 0, sizeof(float)*h*(w-pad_w),
               dst_gpu), CL_SUCCESS);
         // compute golden
         // [h/t][t][w] to [h/t][w][t]
-        cpu_aos_asta(src, dst, h, w, a);
+        cpu_aos_asta(src, dst, h, w-pad_w, a);
         // [h/t][w][t] to [h/t][t][w]
-        cpu_soa_asta(dst, src, w*a, A, a);
-        EXPECT_EQ(0, compare_output(dst_gpu, src, h*w));
+        cpu_soa_asta(dst, src, (w-pad_w)*a, A, a);
+        EXPECT_EQ(0, compare_output(dst_gpu, src, h*(w-pad_w)));
 #endif
       }
     }
@@ -652,14 +525,14 @@ TEST_F(libmarshal_cl_test, full) {
         if (r != false)
           continue;
 #if CHECK_RESULTS
-        ASSERT_EQ(queue_->enqueueReadBuffer(d_dst, CL_TRUE, 0, sizeof(float)*h*w,
+        ASSERT_EQ(queue_->enqueueReadBuffer(d_dst, CL_TRUE, 0, sizeof(float)*h*(w-pad_w),
               dst_gpu), CL_SUCCESS);
         // compute golden
         // [h/t][t][w] to [h/t][w][t]
-        cpu_aos_asta(src, dst, h, w, a);
+        cpu_aos_asta(src, dst, h, w-pad_w, a);
         // [h/t][w][t] to [h/t][t][w]
-        cpu_soa_asta(dst, src, w*a, A, a);
-        EXPECT_EQ(0, compare_output(dst_gpu, src, h*w));
+        cpu_soa_asta(dst, src, (w-pad_w)*a, A, a);
+        EXPECT_EQ(0, compare_output(dst_gpu, src, h*(w-pad_w)));
 #endif
       }
     }
@@ -680,8 +553,22 @@ TEST_F(libmarshal_cl_test, full) {
 
       // 3-stage approach
       for (int n = 0; n < N+WARM_UP; n++) {
-        if (n == WARM_UP)
-          et = 0;
+        if (n == WARM_UP){
+          et = 0; et2 = 0; et3 = 0;
+        }
+
+        // Padding
+        if (pad_w > 0){
+          r = cl_padding((*queue_)(), d_dst(), w - pad_w, h - pad_h, w, &et2);
+          // This may fail
+          EXPECT_EQ(false, r);
+          if (r != false)
+            continue;
+          //std::cerr << "Padding Throughput = " << float(2*h*w*sizeof(float))/et2;
+          //std::cerr << " GB/s\t";
+        }
+
+        // Transpose
         if (a <= b)
           r = cl_transpose((*queue_)(), d_dst(), A, a, B, b, S_f, 3, &et);
         else
@@ -690,19 +577,44 @@ TEST_F(libmarshal_cl_test, full) {
         EXPECT_EQ(false, r);
         if (r != false)
           continue;
+
+        // Unpadding
+        if (pad_h > 0){
+          r = cl_unpadding((*queue_)(), d_dst(), h - pad_h, w - pad_w, h, &et3);
+          // This may fail
+          EXPECT_EQ(false, r);
+          if (r != false)
+            continue;
+          //std::cerr << "Unpadding Throughput = " << float(2*h*w*sizeof(float))/et3;
+          //std::cerr << " GB/s\t";
+        }
+
 #if CHECK_RESULTS
-        ASSERT_EQ(queue_->enqueueReadBuffer(d_dst, CL_TRUE, 0, sizeof(float)*h*w,
+        ASSERT_EQ(queue_->enqueueReadBuffer(d_dst, CL_TRUE, 0, sizeof(float)*h*(w-pad_w),
               dst_gpu), CL_SUCCESS);
         // compute golden
         // [h/t][t][w] to [h/t][w][t]
-        cpu_aos_asta(src, dst, h, w, a);
+        cpu_aos_asta(src, dst, h-pad_h, w-pad_w, a);
         // [h/t][w][t] to [h/t][t][w]
-        cpu_soa_asta(dst, src, w*a, A, a);
-        EXPECT_EQ(0, compare_output(dst_gpu, src, h*w));
+        cpu_soa_asta(dst, src, (w-pad_w)*a, A, a);
+        EXPECT_EQ(0, compare_output(dst_gpu, src, (h-pad_h)*(w-pad_w)));
 #endif
       }
     }
 //}
+
+  /*cl_ulong et3 = 0;
+  // Unpadding
+  if (pad_h > 0){
+    r = cl_unpadding((*queue_)(), d_dst(), h - pad_h, w - pad_w, h, &et3);
+    // This may fail
+    EXPECT_EQ(false, r);
+    if (r != false)
+      continue;
+    std::cerr << "Unpadding Throughput = " << float(2*h*w*sizeof(float))/et3;
+    std::cerr << " GB/s\t";
+  }*/
+
 #if BRUTE
     if(et < max_et) max_et = et;
     }
@@ -711,7 +623,13 @@ TEST_F(libmarshal_cl_test, full) {
   std::cerr << "Max_Throughput = " << float(h*w*2*sizeof(float)) / max_et;
   std::cerr << " GB/s\n";
 #else
-  std::cerr << "Throughput = " << float(2*h*w*sizeof(float)*N)/et;
+  std::cerr << "Padding_Throughput = " << float(2*h*w*sizeof(float)*N)/et2;
+  std::cerr << " GB/s\t";
+  std::cerr << "Transpose_Throughput = " << float(2*h*w*sizeof(float)*N)/et;
+  std::cerr << " GB/s\t";
+  std::cerr << "Unpadding_Throughput = " << float(2*h*w*sizeof(float)*N)/et3;
+  std::cerr << " GB/s\t";
+  std::cerr << "Throughput = " << float(2*h*w*sizeof(float)*N)/(et + et2 + et3);
   std::cerr << " GB/s\n";
 #endif
   free(src);

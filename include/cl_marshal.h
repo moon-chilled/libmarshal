@@ -39,9 +39,14 @@ bool cl_transpose_010_pttwac(cl_command_queue cl_queue, cl_mem src,
 // Transformation 100, or ABb to BAb
 bool cl_transpose_100(cl_command_queue cl_queue, cl_mem src,
   int A, int B, int b, cl_ulong *);
-/// Transformation 0100, or AaBb to ABab
+// Transformation 0100, or AaBb to ABab
 bool cl_transpose_0100(cl_command_queue queue, cl_mem src,
   int A, int a, int B, int b, cl_ulong *);
+// Padding and unpadding
+bool cl_padding(cl_command_queue cl_queue, cl_mem src,
+  int x_size, int y_size, int pad_size, cl_ulong *);
+bool cl_unpadding(cl_command_queue cl_queue, cl_mem src,
+  int x_size, int y_size, int pad_size, cl_ulong *);
 }
 
 #endif // _LIBMARSHAL_INCLUDE_MARSHAL_H_
