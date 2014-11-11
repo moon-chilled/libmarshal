@@ -180,7 +180,7 @@ extern "C" bool cl_unpadding(cl_command_queue cl_queue,
 
   // Atomic flags
   cl_int *flags = (cl_int *)calloc(sizeof(cl_int), y_size + 1);
-  flags[y_size] = 1;
+  flags[0] = 1;
   cl_int err;
   cl::Buffer d_flags = cl::Buffer(context, CL_MEM_READ_WRITE,
       sizeof(cl_int)*(y_size + 1), NULL, &err);

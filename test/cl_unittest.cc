@@ -195,7 +195,7 @@ TEST_F(libmarshal_cl_test, bug537) {
   }
 }
 
-#define CHECK_RESULTS 1 
+#define CHECK_RESULTS 0 
 #define NVIDIA 1
 #define SP 1 // SP = 1 -> Single Precision; SP = 0 -> Double Precision 
 
@@ -348,7 +348,7 @@ TEST_F(libmarshal_cl_test, full) {
   //const int w_max = 32; const int w_min = 2;
 #endif
 
-  for (int n = 12; n < 16; n++){
+  for (int n = 0; n < 20; n++){
   // Generate random dimensions
   srand(n+1);
   int h = rand() % (h_max-h_min) + h_min;
@@ -361,12 +361,12 @@ TEST_F(libmarshal_cl_test, full) {
   int h = hs[n];
 #endif
 
-  std::cerr << "" << h << "," << w << "\t";
+  std::cerr << "" << n << "\t" << "" << h << "," << w << "\t";
 
   std::vector<int> hoptions;
   std::vector<int> woptions;
-  int pad_h, pad_w = 0;
-  bool done_h, done_w = false;
+  int pad_h = 0; int pad_w = 0;
+  bool done_h = false; bool done_w = false;
   //printf("%d %d %s %s\n", pad_h, pad_w, done_h ? "true" : "false", done_w ? "true" : "false");
   do{
     // Factorize dimensions
@@ -375,10 +375,10 @@ TEST_F(libmarshal_cl_test, full) {
     wf.tiling_options();
     hoptions = hf.get_tile_sizes();
     woptions = wf.get_tile_sizes();
-    std::cerr << "" << hoptions.size() << "," << woptions.size() << "\t";
+    //std::cerr << "" << hoptions.size() << "," << woptions.size() << "\t";
 
     // Pad h
-    if (hoptions.size() < 1){
+    if (hoptions.size() < 5){
       pad_h++;
       h++;
     }
@@ -393,6 +393,7 @@ TEST_F(libmarshal_cl_test, full) {
 
   }while(!done_h || !done_w);
 
+  std::cerr << "" << hoptions.size() << "," << woptions.size() << "\t";
   std::cerr << "percent_pad " << ((float)((w-(w-pad_w))*100)/(float)(w-pad_w)) << "%\t";
   std::cerr << "percent_unpad " << ((float)((h-(h-pad_h))*100)/(float)(h-pad_h)) << "%\t";
 
@@ -411,8 +412,8 @@ TEST_F(libmarshal_cl_test, full) {
   //for(int x=0; x<hoptions.size(); x++) printf("%d ", hoptions[hf_sorted[x]]);
   //printf("\n");
   gsl_sort_int_index((size_t *)wf_sorted, &woptions[0], 1, woptions.size());
-  for(int x=0; x<woptions.size(); x++) printf("%d ", woptions[wf_sorted[x]]);
-  printf("\n");
+  //for(int x=0; x<woptions.size(); x++) printf("%d ", woptions[wf_sorted[x]]);
+  //printf("\n");
 #endif
 
 #define BRUTE 0
@@ -427,8 +428,8 @@ TEST_F(libmarshal_cl_test, full) {
   // Heuristic for determining tile dimensions
   int A, a, B, b;
   Heuristic(&A, &a, &B, &b, hf_sorted, wf_sorted, hoptions, woptions, h, w);
-  std::cerr << "" << A << "," << a << ",";
-  std::cerr << "" << B << "," << b <<",";
+  //std::cerr << "" << A << "," << a << ",";
+  //std::cerr << "" << B << "," << b <<",";
 #endif
 
   cl_int err;
@@ -450,7 +451,8 @@ TEST_F(libmarshal_cl_test, full) {
   const int WARM_UP = 2;
 
 //if(a <= 1536 && b <= 1536){
-    if((a >= 6 && a*B*b <= MAX_MEM) || b < 3 && ((a >= b && ((a*B*b+31)/32) + ((((a*B*b+31)/32)>>5)*1) <= MAX_MEM) || (A > b && ((A*B*b+31)/32) + ((((A*B*b+31)/32)>>5)*1) <= MAX_MEM))){
+    //if((a >= 6 && a*B*b <= MAX_MEM) || b < 3 && ((a >= b && ((a*B*b+31)/32) + ((((a*B*b+31)/32)>>5)*1) <= MAX_MEM) || (A > b && ((A*B*b+31)/32) + ((((A*B*b+31)/32)>>5)*1) <= MAX_MEM))){
+    if(a >= 6 && a*B*b <= MAX_MEM){
       /*if (b < 3 && ((a*B*b+31)/32) + ((((a*B*b+31)/32)>>5)*1) > MAX_MEM){
         int temp = A;
         A = a;
@@ -463,37 +465,55 @@ TEST_F(libmarshal_cl_test, full) {
 
       // Calculate spreading factor
       int S_f = MAX_MEM / (((a*B*b+31)/32) + ((((a*B*b+31)/32)>>5)*P));
-      std::cerr << "S_f = " << S_f << ",";
+      //std::cerr << "S_f = " << S_f << ",";
       if (S_f < 2) S_f = 1;
       else if (S_f >=2 && S_f < 4) S_f = 2;
       else if (S_f >=4 && S_f < 8) S_f = 4;
       else if (S_f >=8 && S_f < 16) S_f = 8;
       else if (S_f >=16 && S_f < 32) S_f = 8; //16;
       else S_f = 32; // BS will be used
-      std::cerr << "" << S_f << ",\t";
+      //std::cerr << "" << S_f << ",\t";
 
       // 2-stage approach
       for (int n = 0; n < N+WARM_UP; n++) {
-        if (n == WARM_UP)
-          et = 0;
+        if (n == WARM_UP){
+          et = 0; et2 = 0; et3 = 0;
+        }
+        // Padding
+        if (pad_w > 0){
+          r = cl_padding((*queue_)(), d_dst(), w - pad_w, h - pad_h, w, &et2);
+          EXPECT_EQ(false, r);
+          if (r != false)
+            continue;
+        }
+        // Transpose
         r = cl_transpose((*queue_)(), d_dst(), A, a, B, b, S_f, 2, &et); 
-        // This may fail
         EXPECT_EQ(false, r);
         if (r != false)
           continue;
+        // Unpadding
+        if (pad_h > 0){
+          r = cl_unpadding((*queue_)(), d_dst(), h - pad_h, w - pad_w, h, &et3);
+          EXPECT_EQ(false, r);
+          if (r != false)
+            continue;
+        }
 #if CHECK_RESULTS
-        ASSERT_EQ(queue_->enqueueReadBuffer(d_dst, CL_TRUE, 0, sizeof(float)*h*(w-pad_w),
+        ASSERT_EQ(queue_->enqueueReadBuffer(d_dst, CL_TRUE, 0, sizeof(float)*(h-pad_h)*(w-pad_w),
               dst_gpu), CL_SUCCESS);
         // compute golden
         // [h/t][t][w] to [h/t][w][t]
-        cpu_aos_asta(src, dst, h, w-pad_w, a);
+        //cpu_aos_asta(src, dst, h-pad_h, w-pad_w, a);
+        cpu_aos_asta(src, dst, h-pad_h, w-pad_w, 1);
         // [h/t][w][t] to [h/t][t][w]
-        cpu_soa_asta(dst, src, (w-pad_w)*a, A, a);
-        EXPECT_EQ(0, compare_output(dst_gpu, src, h*(w-pad_w)));
+        //cpu_soa_asta(dst, src, (w-pad_w)*a, A, a);
+        cpu_soa_asta(dst, src, (w-pad_w)*1, h-pad_h, 1);
+        EXPECT_EQ(0, compare_output(dst_gpu, src, (h-pad_h)*(w-pad_w)));
 #endif
       }
     }
-    else if((b >= 6 && b*A*a <= MAX_MEM) || a < 3 && (b >= a && (((b*A*a+31)/32) + ((((b*A*a+31)/32)>>5)*1) <= MAX_MEM) || (B > a && ((B*A*a+31)/32) + ((((B*A*a+31)/32)>>5)*1) <= MAX_MEM))){
+    //else if((b >= 6 && b*A*a <= MAX_MEM) || a < 3 && (b >= a && (((b*A*a+31)/32) + ((((b*A*a+31)/32)>>5)*1) <= MAX_MEM) || (B > a && ((B*A*a+31)/32) + ((((B*A*a+31)/32)>>5)*1) <= MAX_MEM))){
+    else if(b >= 6 && b*A*a <= MAX_MEM){
       /*if (a < 3 && ((b*A*a+31)/32) + ((((b*A*a+31)/32)>>5)*1) > MAX_MEM){
         int temp = B;
         B = b;
@@ -506,33 +526,50 @@ TEST_F(libmarshal_cl_test, full) {
 
       // Calculate spreading factor
       int S_f = MAX_MEM / (((b*A*a+31)/32) + ((((b*A*a+31)/32)>>5)*P));
-      std::cerr << "S_f = " << S_f << ",";
+      //std::cerr << "S_f = " << S_f << ",";
       if (S_f < 2) S_f = 1;
       else if (S_f >=2 && S_f < 4) S_f = 2;
       else if (S_f >=4 && S_f < 8) S_f = 4;
       else if (S_f >=8 && S_f < 16) S_f = 8;
       else if (S_f >=16 && S_f < 32) S_f = 8; //16;
       else S_f = 32; // BS will be used
-      std::cerr << "" << S_f << ",\t";
+      //std::cerr << "" << S_f << ",\t";
 
       // 2-stage approach
       for (int n = 0; n < N+WARM_UP; n++) {
-        if (n == WARM_UP)
-          et = 0;
+        if (n == WARM_UP){
+          et = 0; et2 = 0; et3 = 0;
+        }
+        // Padding
+        if (pad_w > 0){
+          r = cl_padding((*queue_)(), d_dst(), w - pad_w, h - pad_h, w, &et2);
+          EXPECT_EQ(false, r);
+          if (r != false)
+            continue;
+        }
+        // Transpose
         r = cl_transpose((*queue_)(), d_dst(), A, a, B, b, S_f, 22, &et);
-        // This may fail
         EXPECT_EQ(false, r);
         if (r != false)
           continue;
+        // Unpadding
+        if (pad_h > 0){
+          r = cl_unpadding((*queue_)(), d_dst(), h - pad_h, w - pad_w, h, &et3);
+          EXPECT_EQ(false, r);
+          if (r != false)
+            continue;
+        }
 #if CHECK_RESULTS
-        ASSERT_EQ(queue_->enqueueReadBuffer(d_dst, CL_TRUE, 0, sizeof(float)*h*(w-pad_w),
+        ASSERT_EQ(queue_->enqueueReadBuffer(d_dst, CL_TRUE, 0, sizeof(float)*(h-pad_h)*(w-pad_w),
               dst_gpu), CL_SUCCESS);
         // compute golden
         // [h/t][t][w] to [h/t][w][t]
-        cpu_aos_asta(src, dst, h, w-pad_w, a);
+        //cpu_aos_asta(src, dst, h-pad_h, w-pad_w, a);
+        cpu_aos_asta(src, dst, h-pad_h, w-pad_w, 1);
         // [h/t][w][t] to [h/t][t][w]
-        cpu_soa_asta(dst, src, (w-pad_w)*a, A, a);
-        EXPECT_EQ(0, compare_output(dst_gpu, src, h*(w-pad_w)));
+        //cpu_soa_asta(dst, src, (w-pad_w)*a, A, a);
+        cpu_soa_asta(dst, src, (w-pad_w)*1, h-pad_h, 1);
+        EXPECT_EQ(0, compare_output(dst_gpu, src, (h-pad_h)*(w-pad_w)));
 #endif
       }
     }
@@ -542,78 +579,57 @@ TEST_F(libmarshal_cl_test, full) {
 
       // Calculate spreading factor
       int S_f = MAX_MEM / (((a*b+31)/32) + ((((a*b+31)/32)>>5)*P));
-      std::cerr << "S_f = " << S_f << ",";
+      //std::cerr << "S_f = " << S_f << ",";
       if (S_f < 2) S_f = 1;
       else if (S_f >=2 && S_f < 4) S_f = 2;
       else if (S_f >=4 && S_f < 8) S_f = 4;
       else if (S_f >=8 && S_f < 16) S_f = 8;
       else if (S_f >=16 && S_f < 32) S_f = 8; //16;
       else S_f = 32; // BS will be used
-      std::cerr << "" << S_f << ",\t";
+      //std::cerr << "" << S_f << ",\t";
 
       // 3-stage approach
       for (int n = 0; n < N+WARM_UP; n++) {
         if (n == WARM_UP){
           et = 0; et2 = 0; et3 = 0;
         }
-
         // Padding
         if (pad_w > 0){
           r = cl_padding((*queue_)(), d_dst(), w - pad_w, h - pad_h, w, &et2);
-          // This may fail
           EXPECT_EQ(false, r);
           if (r != false)
             continue;
-          //std::cerr << "Padding Throughput = " << float(2*h*w*sizeof(float))/et2;
-          //std::cerr << " GB/s\t";
         }
-
         // Transpose
         if (a <= b)
           r = cl_transpose((*queue_)(), d_dst(), A, a, B, b, S_f, 3, &et);
         else
           r = cl_transpose((*queue_)(), d_dst(), A, a, B, b, S_f, 32, &et);
-        // This may fail
         EXPECT_EQ(false, r);
         if (r != false)
           continue;
-
         // Unpadding
         if (pad_h > 0){
           r = cl_unpadding((*queue_)(), d_dst(), h - pad_h, w - pad_w, h, &et3);
-          // This may fail
           EXPECT_EQ(false, r);
           if (r != false)
             continue;
-          //std::cerr << "Unpadding Throughput = " << float(2*h*w*sizeof(float))/et3;
-          //std::cerr << " GB/s\t";
         }
-
 #if CHECK_RESULTS
-        ASSERT_EQ(queue_->enqueueReadBuffer(d_dst, CL_TRUE, 0, sizeof(float)*h*(w-pad_w),
+        ASSERT_EQ(queue_->enqueueReadBuffer(d_dst, CL_TRUE, 0, sizeof(float)*(h-pad_h)*(w-pad_w),
               dst_gpu), CL_SUCCESS);
         // compute golden
         // [h/t][t][w] to [h/t][w][t]
-        cpu_aos_asta(src, dst, h-pad_h, w-pad_w, a);
+        //cpu_aos_asta(src, dst, h-pad_h, w-pad_w, a);
+        cpu_aos_asta(src, dst, h-pad_h, w-pad_w, 1);
         // [h/t][w][t] to [h/t][t][w]
-        cpu_soa_asta(dst, src, (w-pad_w)*a, A, a);
+        //cpu_soa_asta(dst, src, (w-pad_w)*a, A, a);
+        cpu_soa_asta(dst, src, (w-pad_w)*1, h-pad_h, 1);
         EXPECT_EQ(0, compare_output(dst_gpu, src, (h-pad_h)*(w-pad_w)));
 #endif
       }
     }
 //}
-
-  /*cl_ulong et3 = 0;
-  // Unpadding
-  if (pad_h > 0){
-    r = cl_unpadding((*queue_)(), d_dst(), h - pad_h, w - pad_w, h, &et3);
-    // This may fail
-    EXPECT_EQ(false, r);
-    if (r != false)
-      continue;
-    std::cerr << "Unpadding Throughput = " << float(2*h*w*sizeof(float))/et3;
-    std::cerr << " GB/s\t";
-  }*/
 
 #if BRUTE
     if(et < max_et) max_et = et;

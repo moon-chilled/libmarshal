@@ -95,7 +95,7 @@ __kernel void unpadding( __global float *matrix,
     __local float *shm,
     volatile __global unsigned int *flags)
 {
-  int offset = x_size / get_local_size(0) < REGS ? x_size - (x_size / (get_local_size(0) * REGS)) : get_local_size(0) * REGS;
+  //int offset = x_size / get_local_size(0) < REGS ? x_size - (x_size / (get_local_size(0) * REGS)) : get_local_size(0) * REGS;
 
   for (int my_y = 1 + get_group_id(0) *  ROWS; my_y < y_size; my_y += get_num_groups(0) * ROWS){
 
