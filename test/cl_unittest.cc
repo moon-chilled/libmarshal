@@ -195,7 +195,7 @@ TEST_F(libmarshal_cl_test, bug537) {
   }
 }
 
-#define CHECK_RESULTS 0 
+#define CHECK_RESULTS 1 
 #define NVIDIA 1
 #define SP 1 // SP = 1 -> Single Precision; SP = 0 -> Double Precision 
 
@@ -447,8 +447,8 @@ TEST_F(libmarshal_cl_test, full) {
   cl_ulong et2 = 0;
   cl_ulong et3 = 0;
   // Change N to something > 1 to compute average performance (and use some WARM_UP runs).
-  const int N = 4; 
-  const int WARM_UP = 2;
+  const int N = 1; 
+  const int WARM_UP = 0;
 
 //if(a <= 1536 && b <= 1536){
     //if((a >= 6 && a*B*b <= MAX_MEM) || b < 3 && ((a >= b && ((a*B*b+31)/32) + ((((a*B*b+31)/32)>>5)*1) <= MAX_MEM) || (A > b && ((A*B*b+31)/32) + ((((A*B*b+31)/32)>>5)*1) <= MAX_MEM))){

@@ -31,147 +31,6 @@
 #define WARP_SIZE 64
 #endif
 
-// Padding kernel
-#define REGS 32
-#define ATOM 0
-__kernel void padding( __global float* matrix,
-    int x_size,
-    int pad_size,
-    int y_size,
-    __local float *shm,
-    volatile __global int *flags)
-{
-  int offset = x_size / get_local_size(0) < REGS ? x_size - (x_size / (get_local_size(0) * REGS)) : get_local_size(0) * REGS;
-
-  for (int my_y = y_size - 1 - get_group_id(0); my_y >= 0; my_y -= get_num_groups(0)){
-
-    // Declare on-chip memory
-    float reg[REGS];
-    int i = 0;
-
-    // Load in on-chip memory
-    for (int my_x = get_local_id(0); my_x < x_size && i < REGS; my_x += get_local_size(0), i++){
-      reg[i] = matrix[my_y * x_size + my_x];
-    }
-    // Tail in __local
-    for (int my_x = offset + get_local_id(0); my_x < x_size; my_x += get_local_size(0))
-      shm[my_x - offset] = matrix[my_y * x_size + my_x];
-
-    barrier(CLK_LOCAL_MEM_FENCE);
-
-    // Set global synch
-#if ATOM
-    while (atom_or(&flags[my_y + 1], 0) == 0){}
-    if (get_local_id(0) == 0) atom_or(&flags[my_y], 1);
-#else
-    while (flags[my_y + 1] == 0){}
-    if (get_local_id(0) == 0) flags[my_y] = 1;
-#endif
-
-    i = 0;
-    // Store in global memory
-    for (int my_x = get_local_id(0); my_x < x_size && i < REGS; my_x += get_local_size(0), i++){
-      matrix[my_y * pad_size + my_x] = reg[i];
-    }
-    // Store tail
-    for (int my_x = offset + get_local_id(0); my_x < x_size; my_x += get_local_size(0))
-      matrix[my_y * pad_size + my_x] = shm[my_x - offset];
-    for (int my_x = x_size + get_local_id(0); my_x < pad_size; my_x += get_local_size(0))
-      matrix[my_y * pad_size + my_x] = 0.0f;
-
-    barrier(CLK_LOCAL_MEM_FENCE);
-
-  }
-}
-
-// Unpadding kernel
-#undef REGS
-#define REGS 32
-#define ROWS 2
-__kernel void unpadding( __global float *matrix,
-    int x_size,
-    int pad_size,
-    int y_size,
-    __local float *shm,
-    volatile __global unsigned int *flags)
-{
-  //int offset = x_size / get_local_size(0) < REGS ? x_size - (x_size / (get_local_size(0) * REGS)) : get_local_size(0) * REGS;
-
-  for (int my_y = 1 + get_group_id(0) *  ROWS; my_y < y_size; my_y += get_num_groups(0) * ROWS){
-
-    // Declare on-chip memory
-    float reg[REGS];
-    int i = 0;
-    int my_x = 0, my_y_row = 0, my_x_cont = 0;
-    int shm_idx = get_local_id(0);
-    // Load in on-chip memory
-    #pragma unroll
-    for (my_y_row = my_y; my_y_row < my_y + ROWS && my_y_row < y_size; my_y_row++){
-      for (my_x = get_local_id(0); my_x < x_size && i < REGS; my_x += get_local_size(0), i++){
-        reg[i] = matrix[my_y_row * pad_size + my_x];
-      }
-      if (i == REGS) break;
-    }
-    // Tail in __local: Rest of row
-    for (my_x_cont = my_x, shm_idx = get_local_id(0); my_x_cont < x_size; my_x_cont += get_local_size(0), shm_idx += get_local_size(0)){
-      shm[shm_idx] = matrix[my_y_row * pad_size + my_x_cont];
-    }
-    // Rest of rows
-    for (int my_y_cont = my_y_row + 1; my_y_cont < my_y + ROWS && my_y_cont < y_size; my_y_cont++)
-      for (int my_x_cont2 = get_local_id(0); my_x_cont2 < x_size; my_x_cont2 += get_local_size(0), shm_idx += get_local_size(0))
-        shm[shm_idx] = matrix[my_y_cont * pad_size + my_x_cont2];
-
-    barrier(CLK_LOCAL_MEM_FENCE);
-
-    // Set global synch
-    int r = my_y == 1 ? 1 : ROWS;
-#if ATOM
-    while (atom_or(&flags[my_y-r], 0) == 0){}
-    if (get_local_id(0) == 0) atom_or(&flags[my_y], 1);
-#else
-    while (flags[my_y-r] == 0){}
-    if (get_local_id(0) == 0) flags[my_y] = 1;
-#endif
-
-    i = 0;
-    my_x = my_y_row = my_x_cont = 0;
-    shm_idx = get_local_id(0);
-    // Store in global memory
-    #pragma unroll
-    for (my_y_row = my_y; my_y_row < my_y + ROWS && my_y_row < y_size; my_y_row++){
-      for (my_x = get_local_id(0); my_x < x_size && i < REGS; my_x += get_local_size(0), i++){
-        matrix[my_y_row * x_size + my_x] = reg[i];
-      }
-      if (i == REGS) break;
-    }
-    // Store tail: Rest of row
-    for (my_x_cont = my_x, shm_idx = get_local_id(0); my_x_cont < x_size; my_x_cont += get_local_size(0), shm_idx += get_local_size(0)){
-      matrix[my_y_row * x_size + my_x_cont] = shm[shm_idx];
-    }
-    // Rest of rows
-    for (int my_y_cont = my_y_row + 1; my_y_cont < my_y + ROWS && my_y_cont < y_size; my_y_cont++)
-      for (int my_x_cont2 = get_local_id(0); my_x_cont2 < x_size; my_x_cont2 += get_local_size(0), shm_idx += get_local_size(0))
-        matrix[my_y_cont * x_size + my_x_cont2] = shm[shm_idx];
-
-    barrier(CLK_LOCAL_MEM_FENCE);
-
-#if ATOM
-    if (my_y + ROWS >= y_size - 1 && get_local_id(0) == 0) atom_or(&flags[y_size], 1);
-#else
-    if (my_y + ROWS >= y_size - 1 && get_local_id(0) == 0) flags[y_size] = 1;
-#endif
-  }
-
-  // Zeros at the end
-#if ATOM
-  while (atom_or(&flags[y_size], 0) == 0){}
-#else
-  while (flags[y_size] == 0){}
-#endif
-  for (int i = y_size * x_size + get_global_id(0); i < y_size * pad_size; i += get_global_size(0))
-    matrix[i] = 0.0f;
-}
-
 // mymemset kernel
 __kernel void mymemset (__global float *input) {
   input[get_global_id(0)] = 0.0f;
@@ -472,7 +331,7 @@ __kernel void transpose_100(__global float *input,
 //  get_local_size(0) == wavefront size;
 //  get_local_size(1) == number of warps
 #define P_IPT 0
-#define LOCALMEM_TILING 0 // 1 - Local memory tiling; 0 - Register tiling
+#define LOCALMEM_TILING 1 // 1 - Local memory tiling; 0 - Register tiling
 #if LOCALMEM_TILING
 void _transpose_100(__global float *input,
     int A, int B, int b, __global int *finished, volatile __local float *data,
@@ -896,3 +755,829 @@ __kernel void transpose_0100_b(__global float *input,
 #endif
 
 #undef LOCALMEM_TILING
+
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+#define REGS 64
+#define ATOM 0
+#define C_REGS 1024
+__kernel void unpadding_1024( __global float *matrix,
+    int x_size,
+    int pad_size,
+    int y_size,
+    int rows,
+    __local float *shm,
+    volatile __global unsigned int *flags)
+{
+  // Dynamic allocation of runtime workgroup id
+  __local int gid_;
+  if (get_local_id(0) == 0) gid_ = atom_add(&flags[y_size], rows);
+  barrier(CLK_LOCAL_MEM_FENCE);
+  int my_y = gid_;
+
+  // Declare on-chip memory
+  float reg[REGS];
+  int i = 0;
+  // Load in on-chip memory
+  // C_REGS columns to registers
+  #pragma unroll
+  for (int my_y_row = my_y; my_y_row < my_y + rows && my_y_row < y_size; my_y_row++)
+    #pragma unroll
+    for (int my_x = get_local_id(0); my_x < C_REGS && my_x < x_size; my_x += get_local_size(0), i++){
+      reg[i] = matrix[my_y_row * pad_size + my_x];
+    }
+    /*for (int i = 0; my_x < C_REGS / 1024; i++){
+      reg[i] = matrix[my_y_row * pad_size + i * get_local_size(0) + get_local_id(0)];
+    }*/
+  // Rest of columns to __local
+  int shm_idx = get_local_id(0);
+  int k = (x_size - C_REGS) / get_local_size(0);
+  for (int my_y_row = my_y; my_y_row < my_y + rows && my_y_row < y_size; my_y_row++){
+    for (int j = 0; j < k; j++, shm_idx += get_local_size(0))
+      shm[shm_idx] = matrix[my_y_row * pad_size + C_REGS + j * get_local_size(0) + get_local_id(0)];
+    if (get_local_id(0) < x_size - C_REGS - k * get_local_size(0))
+      shm[shm_idx] = matrix[my_y_row * pad_size + C_REGS + k * get_local_size(0) + get_local_id(0)];
+    shm_idx += x_size - C_REGS - k * get_local_size(0);
+  }
+
+  barrier(CLK_LOCAL_MEM_FENCE);
+
+  // Set global synch
+  int r = my_y == 1 ? 1 : rows;
+#if ATOM
+  while (atom_or(&flags[my_y-r], 0) == 0){}
+  if (get_local_id(0) == 0) atom_or(&flags[my_y], 1);
+#else
+  while (flags[my_y-r] == 0){}
+   if (get_local_id(0) == 0) flags[my_y] = 1;
+#endif
+
+  i = 0;
+  // Store in global memory
+  // C_REGS columns from registers
+  #pragma unroll
+  for (int my_y_row = my_y; my_y_row < my_y + rows && my_y_row < y_size; my_y_row++)
+    #pragma unroll
+    for (int my_x = get_local_id(0); my_x < C_REGS && my_x < x_size; my_x += get_local_size(0), i++){
+      matrix[my_y_row * x_size + my_x] = reg[i];
+    }
+    /*for (int i = 0; my_x < C_REGS / 1024; i++){
+      matrix[my_y_row * x_size + i * get_local_size(0) + get_local_id(0)] = reg[i]; 
+    }*/
+  // Rest of columns from __local
+  shm_idx = get_local_id(0);
+  for (int my_y_row = my_y; my_y_row < my_y + rows && my_y_row < y_size; my_y_row++){
+    for (int j = 0; j < k; j++, shm_idx += get_local_size(0))
+      matrix[my_y_row * x_size + C_REGS + j * get_local_size(0) + get_local_id(0)] = shm[shm_idx];
+    if (get_local_id(0) < x_size - C_REGS - k * get_local_size(0))
+      matrix[my_y_row * x_size + C_REGS + k * get_local_size(0) + get_local_id(0)] = shm[shm_idx];
+    shm_idx += x_size - C_REGS - k * get_local_size(0);
+  }
+
+  // Zeros at the end
+  if (my_y + rows >= y_size)
+    for (int i = y_size * x_size + get_local_id(0); i < y_size * pad_size; i += get_local_size(0)){
+      matrix[i] = 0.0f;
+    }
+}
+
+#undef C_REGS
+#define REGS 64
+#define ATOM 0
+#define C_REGS 2048
+__kernel void unpadding_2048( __global float *matrix,
+    int x_size,
+    int pad_size,
+    int y_size,
+    int rows,
+    __local float *shm,
+    volatile __global unsigned int *flags)
+{
+  // Dynamic allocation of runtime workgroup id
+  __local int gid_;
+  if (get_local_id(0) == 0) gid_ = atom_add(&flags[y_size], rows);
+  barrier(CLK_LOCAL_MEM_FENCE);
+  int my_y = gid_;
+
+  // Declare on-chip memory
+  float reg[REGS];
+  int i = 0;
+  // Load in on-chip memory
+  // C_REGS columns to registers
+  #pragma unroll
+  for (int my_y_row = my_y; my_y_row < my_y + rows && my_y_row < y_size; my_y_row++)
+    #pragma unroll
+    for (int my_x = get_local_id(0); my_x < C_REGS && my_x < x_size; my_x += get_local_size(0), i++){
+      reg[i] = matrix[my_y_row * pad_size + my_x];
+    }
+    /*for (int i = 0; my_x < C_REGS / 1024; i++){
+      reg[i] = matrix[my_y_row * pad_size + i * get_local_size(0) + get_local_id(0)];
+    }*/
+  // Rest of columns to __local
+  int shm_idx = get_local_id(0);
+  int k = (x_size - C_REGS) / get_local_size(0);
+  for (int my_y_row = my_y; my_y_row < my_y + rows && my_y_row < y_size; my_y_row++){
+    for (int j = 0; j < k; j++, shm_idx += get_local_size(0))
+      shm[shm_idx] = matrix[my_y_row * pad_size + C_REGS + j * get_local_size(0) + get_local_id(0)];
+    if (get_local_id(0) < x_size - C_REGS - k * get_local_size(0))
+      shm[shm_idx] = matrix[my_y_row * pad_size + C_REGS + k * get_local_size(0) + get_local_id(0)];
+    shm_idx += x_size - C_REGS - k * get_local_size(0);
+  }
+
+  barrier(CLK_LOCAL_MEM_FENCE);
+
+  // Set global synch
+  int r = my_y == 1 ? 1 : rows;
+#if ATOM
+  while (atom_or(&flags[my_y-r], 0) == 0){}
+  if (get_local_id(0) == 0) atom_or(&flags[my_y], 1);
+#else
+  while (flags[my_y-r] == 0){}
+   if (get_local_id(0) == 0) flags[my_y] = 1;
+#endif
+
+  i = 0;
+  // Store in global memory
+  // C_REGS columns from registers
+  #pragma unroll
+  for (int my_y_row = my_y; my_y_row < my_y + rows && my_y_row < y_size; my_y_row++)
+    #pragma unroll
+    for (int my_x = get_local_id(0); my_x < C_REGS && my_x < x_size; my_x += get_local_size(0), i++){
+      matrix[my_y_row * x_size + my_x] = reg[i];
+    }
+    /*for (int i = 0; my_x < C_REGS / 1024; i++){
+      matrix[my_y_row * x_size + i * get_local_size(0) + get_local_id(0)] = reg[i]; 
+    }*/
+  // Rest of columns from __local
+  shm_idx = get_local_id(0);
+  for (int my_y_row = my_y; my_y_row < my_y + rows && my_y_row < y_size; my_y_row++){
+    for (int j = 0; j < k; j++, shm_idx += get_local_size(0))
+      matrix[my_y_row * x_size + C_REGS + j * get_local_size(0) + get_local_id(0)] = shm[shm_idx];
+    if (get_local_id(0) < x_size - C_REGS - k * get_local_size(0))
+      matrix[my_y_row * x_size + C_REGS + k * get_local_size(0) + get_local_id(0)] = shm[shm_idx];
+    shm_idx += x_size - C_REGS - k * get_local_size(0);
+  }
+
+  // Zeros at the end
+  if (my_y + rows >= y_size)
+    for (int i = y_size * x_size + get_local_id(0); i < y_size * pad_size; i += get_local_size(0)){
+      matrix[i] = 0.0f;
+    }
+}
+
+#undef C_REGS
+#define REGS 64
+#define ATOM 0
+#define C_REGS 4096 
+__kernel void unpadding_4096( __global float *matrix,
+    int x_size,
+    int pad_size,
+    int y_size,
+    int rows,
+    __local float *shm,
+    volatile __global unsigned int *flags)
+{
+  // Dynamic allocation of runtime workgroup id
+  __local int gid_;
+  if (get_local_id(0) == 0) gid_ = atom_add(&flags[y_size], rows);
+  barrier(CLK_LOCAL_MEM_FENCE);
+  int my_y = gid_;
+
+  // Declare on-chip memory
+  float reg[REGS];
+  int i = 0;
+  // Load in on-chip memory
+  // C_REGS columns to registers
+  #pragma unroll
+  for (int my_y_row = my_y; my_y_row < my_y + rows && my_y_row < y_size; my_y_row++)
+    #pragma unroll
+    for (int my_x = get_local_id(0); my_x < C_REGS && my_x < x_size; my_x += get_local_size(0), i++){
+      reg[i] = matrix[my_y_row * pad_size + my_x];
+    }
+    /*for (int i = 0; my_x < C_REGS / 1024; i++){
+      reg[i] = matrix[my_y_row * pad_size + i * get_local_size(0) + get_local_id(0)];
+    }*/
+  // Rest of columns to __local
+  int shm_idx = get_local_id(0);
+  int k = (x_size - C_REGS) / get_local_size(0);
+  for (int my_y_row = my_y; my_y_row < my_y + rows && my_y_row < y_size; my_y_row++){
+    for (int j = 0; j < k; j++, shm_idx += get_local_size(0))
+      shm[shm_idx] = matrix[my_y_row * pad_size + C_REGS + j * get_local_size(0) + get_local_id(0)];
+    if (get_local_id(0) < x_size - C_REGS - k * get_local_size(0))
+      shm[shm_idx] = matrix[my_y_row * pad_size + C_REGS + k * get_local_size(0) + get_local_id(0)];
+    shm_idx += x_size - C_REGS - k * get_local_size(0);
+  }
+
+  barrier(CLK_LOCAL_MEM_FENCE);
+
+  // Set global synch
+  int r = my_y == 1 ? 1 : rows;
+#if ATOM
+  while (atom_or(&flags[my_y-r], 0) == 0){}
+  if (get_local_id(0) == 0) atom_or(&flags[my_y], 1);
+#else
+  while (flags[my_y-r] == 0){}
+   if (get_local_id(0) == 0) flags[my_y] = 1;
+#endif
+
+  i = 0;
+  // Store in global memory
+  // C_REGS columns from registers
+  #pragma unroll
+  for (int my_y_row = my_y; my_y_row < my_y + rows && my_y_row < y_size; my_y_row++)
+    #pragma unroll
+    for (int my_x = get_local_id(0); my_x < C_REGS && my_x < x_size; my_x += get_local_size(0), i++){
+      matrix[my_y_row * x_size + my_x] = reg[i];
+    }
+    /*for (int i = 0; my_x < C_REGS / 1024; i++){
+      matrix[my_y_row * x_size + i * get_local_size(0) + get_local_id(0)] = reg[i]; 
+    }*/
+  // Rest of columns from __local
+  shm_idx = get_local_id(0);
+  for (int my_y_row = my_y; my_y_row < my_y + rows && my_y_row < y_size; my_y_row++){
+    for (int j = 0; j < k; j++, shm_idx += get_local_size(0))
+      matrix[my_y_row * x_size + C_REGS + j * get_local_size(0) + get_local_id(0)] = shm[shm_idx];
+    if (get_local_id(0) < x_size - C_REGS - k * get_local_size(0))
+      matrix[my_y_row * x_size + C_REGS + k * get_local_size(0) + get_local_id(0)] = shm[shm_idx];
+    shm_idx += x_size - C_REGS - k * get_local_size(0);
+  }
+
+  // Zeros at the end
+  if (my_y + rows >= y_size)
+    for (int i = y_size * x_size + get_local_id(0); i < y_size * pad_size; i += get_local_size(0)){
+      matrix[i] = 0.0f;
+    }
+}
+
+#undef C_REGS
+#define REGS 64
+#define ATOM 0
+#define C_REGS 8192 
+__kernel void unpadding_8192( __global float *matrix,
+    int x_size,
+    int pad_size,
+    int y_size,
+    int rows,
+    __local float *shm,
+    volatile __global unsigned int *flags)
+{
+  // Dynamic allocation of runtime workgroup id
+  __local int gid_;
+  if (get_local_id(0) == 0) gid_ = atom_add(&flags[y_size], rows);
+  barrier(CLK_LOCAL_MEM_FENCE);
+  int my_y = gid_;
+
+  // Declare on-chip memory
+  float reg[REGS];
+  int i = 0;
+  // Load in on-chip memory
+  // C_REGS columns to registers
+  #pragma unroll
+  for (int my_y_row = my_y; my_y_row < my_y + rows && my_y_row < y_size; my_y_row++)
+    #pragma unroll
+    for (int my_x = get_local_id(0); my_x < C_REGS && my_x < x_size; my_x += get_local_size(0), i++){
+      reg[i] = matrix[my_y_row * pad_size + my_x];
+    }
+    /*for (int i = 0; my_x < C_REGS / 1024; i++){
+      reg[i] = matrix[my_y_row * pad_size + i * get_local_size(0) + get_local_id(0)];
+    }*/
+  // Rest of columns to __local
+  int shm_idx = get_local_id(0);
+  int k = (x_size - C_REGS) / get_local_size(0);
+  for (int my_y_row = my_y; my_y_row < my_y + rows && my_y_row < y_size; my_y_row++){
+    for (int j = 0; j < k; j++, shm_idx += get_local_size(0))
+      shm[shm_idx] = matrix[my_y_row * pad_size + C_REGS + j * get_local_size(0) + get_local_id(0)];
+    if (get_local_id(0) < x_size - C_REGS - k * get_local_size(0))
+      shm[shm_idx] = matrix[my_y_row * pad_size + C_REGS + k * get_local_size(0) + get_local_id(0)];
+    shm_idx += x_size - C_REGS - k * get_local_size(0);
+  }
+
+  barrier(CLK_LOCAL_MEM_FENCE);
+
+  // Set global synch
+  int r = my_y == 1 ? 1 : rows;
+#if ATOM
+  while (atom_or(&flags[my_y-r], 0) == 0){}
+  if (get_local_id(0) == 0) atom_or(&flags[my_y], 1);
+#else
+  while (flags[my_y-r] == 0){}
+   if (get_local_id(0) == 0) flags[my_y] = 1;
+#endif
+
+  i = 0;
+  // Store in global memory
+  // C_REGS columns from registers
+  #pragma unroll
+  for (int my_y_row = my_y; my_y_row < my_y + rows && my_y_row < y_size; my_y_row++)
+    #pragma unroll
+    for (int my_x = get_local_id(0); my_x < C_REGS && my_x < x_size; my_x += get_local_size(0), i++){
+      matrix[my_y_row * x_size + my_x] = reg[i];
+    }
+    /*for (int i = 0; my_x < C_REGS / 1024; i++){
+      matrix[my_y_row * x_size + i * get_local_size(0) + get_local_id(0)] = reg[i]; 
+    }*/
+  // Rest of columns from __local
+  shm_idx = get_local_id(0);
+  for (int my_y_row = my_y; my_y_row < my_y + rows && my_y_row < y_size; my_y_row++){
+    for (int j = 0; j < k; j++, shm_idx += get_local_size(0))
+      matrix[my_y_row * x_size + C_REGS + j * get_local_size(0) + get_local_id(0)] = shm[shm_idx];
+    if (get_local_id(0) < x_size - C_REGS - k * get_local_size(0))
+      matrix[my_y_row * x_size + C_REGS + k * get_local_size(0) + get_local_id(0)] = shm[shm_idx];
+    shm_idx += x_size - C_REGS - k * get_local_size(0);
+  }
+
+  // Zeros at the end
+  if (my_y + rows >= y_size)
+    for (int i = y_size * x_size + get_local_id(0); i < y_size * pad_size; i += get_local_size(0)){
+      matrix[i] = 0.0f;
+    }
+}
+
+#undef C_REGS
+#define REGS 64
+#define ATOM 0
+#define C_REGS 16384
+__kernel void unpadding_16384( __global float *matrix,
+    int x_size,
+    int pad_size,
+    int y_size,
+    int rows,
+    __local float *shm,
+    volatile __global unsigned int *flags)
+{
+  // Dynamic allocation of runtime workgroup id
+  __local int gid_;
+  if (get_local_id(0) == 0) gid_ = atom_add(&flags[y_size], rows);
+  barrier(CLK_LOCAL_MEM_FENCE);
+  int my_y = gid_;
+
+  // Declare on-chip memory
+  float reg[REGS];
+  int i = 0;
+  // Load in on-chip memory
+  // C_REGS columns to registers
+  #pragma unroll
+  for (int my_y_row = my_y; my_y_row < my_y + rows && my_y_row < y_size; my_y_row++)
+    #pragma unroll
+    for (int my_x = get_local_id(0); my_x < C_REGS && my_x < x_size; my_x += get_local_size(0), i++){
+      reg[i] = matrix[my_y_row * pad_size + my_x];
+    }
+    /*for (int i = 0; my_x < C_REGS / 1024; i++){
+      reg[i] = matrix[my_y_row * pad_size + i * get_local_size(0) + get_local_id(0)];
+    }*/
+  // Rest of columns to __local
+  int shm_idx = get_local_id(0);
+  int k = (x_size - C_REGS) / get_local_size(0);
+  for (int my_y_row = my_y; my_y_row < my_y + rows && my_y_row < y_size; my_y_row++){
+    for (int j = 0; j < k; j++, shm_idx += get_local_size(0))
+      shm[shm_idx] = matrix[my_y_row * pad_size + C_REGS + j * get_local_size(0) + get_local_id(0)];
+    if (get_local_id(0) < x_size - C_REGS - k * get_local_size(0))
+      shm[shm_idx] = matrix[my_y_row * pad_size + C_REGS + k * get_local_size(0) + get_local_id(0)];
+    shm_idx += x_size - C_REGS - k * get_local_size(0);
+  }
+
+  barrier(CLK_LOCAL_MEM_FENCE);
+
+  // Set global synch
+  int r = my_y == 1 ? 1 : rows;
+#if ATOM
+  while (atom_or(&flags[my_y-r], 0) == 0){}
+  if (get_local_id(0) == 0) atom_or(&flags[my_y], 1);
+#else
+  while (flags[my_y-r] == 0){}
+   if (get_local_id(0) == 0) flags[my_y] = 1;
+#endif
+
+  i = 0;
+  // Store in global memory
+  // C_REGS columns from registers
+  #pragma unroll
+  for (int my_y_row = my_y; my_y_row < my_y + rows && my_y_row < y_size; my_y_row++)
+    #pragma unroll
+    for (int my_x = get_local_id(0); my_x < C_REGS && my_x < x_size; my_x += get_local_size(0), i++){
+      matrix[my_y_row * x_size + my_x] = reg[i];
+    }
+    /*for (int i = 0; my_x < C_REGS / 1024; i++){
+      matrix[my_y_row * x_size + i * get_local_size(0) + get_local_id(0)] = reg[i]; 
+    }*/
+  // Rest of columns from __local
+  shm_idx = get_local_id(0);
+  for (int my_y_row = my_y; my_y_row < my_y + rows && my_y_row < y_size; my_y_row++){
+    for (int j = 0; j < k; j++, shm_idx += get_local_size(0))
+      matrix[my_y_row * x_size + C_REGS + j * get_local_size(0) + get_local_id(0)] = shm[shm_idx];
+    if (get_local_id(0) < x_size - C_REGS - k * get_local_size(0))
+      matrix[my_y_row * x_size + C_REGS + k * get_local_size(0) + get_local_id(0)] = shm[shm_idx];
+    shm_idx += x_size - C_REGS - k * get_local_size(0);
+  }
+
+  // Zeros at the end
+  if (my_y + rows >= y_size)
+    for (int i = y_size * x_size + get_local_id(0); i < y_size * pad_size; i += get_local_size(0)){
+      matrix[i] = 0.0f;
+    }
+}
+
+#undef C_REGS
+#define REGS 64
+#define ATOM 0
+#define C_REGS 1024
+__kernel void padding_1024( __global float *matrix,
+    int x_size,
+    int pad_size,
+    int y_size,
+    int rows,
+    __local float *shm,
+    volatile __global unsigned int *flags)
+{
+  // Dynamic allocation of runtime workgroup id
+  __local int gid_;
+  if (get_local_id(0) == 0) gid_ = atom_sub(&flags[0], rows);
+  barrier(CLK_LOCAL_MEM_FENCE);
+  int my_y = gid_ - rows;
+
+  // Declare on-chip memory
+  float reg[REGS];
+  int i = 0;
+  // Load in on-chip memory
+  // C_REGS columns to registers
+  #pragma unroll
+  for (int my_y_row = my_y + rows - 1; my_y_row >= my_y && my_y_row > 0; my_y_row--)
+    #pragma unroll
+    for (int my_x = get_local_id(0); my_x < C_REGS && my_x < x_size; my_x += get_local_size(0), i++){
+      reg[i] = matrix[my_y_row * x_size + my_x];
+    }
+  // Rest of columns to __local
+  int shm_idx = get_local_id(0);
+  int k = (x_size - C_REGS) / get_local_size(0);
+  for (int my_y_row = my_y + rows - 1; my_y_row >= my_y && my_y_row > 0; my_y_row--){
+    for (int j = 0; j < k; j++, shm_idx += get_local_size(0))
+      shm[shm_idx] = matrix[my_y_row * x_size + C_REGS + j * get_local_size(0) + get_local_id(0)];
+    if (get_local_id(0) < x_size - C_REGS - k * get_local_size(0))
+      shm[shm_idx] = matrix[my_y_row * x_size + C_REGS + k * get_local_size(0) + get_local_id(0)];
+    shm_idx += x_size - C_REGS - k * get_local_size(0);
+  }
+
+  barrier(CLK_LOCAL_MEM_FENCE);
+
+  // Set global synch
+  int r = rows;
+#if ATOM
+  while (atom_or(&flags[my_y+r], 0) == 0){}
+  if (get_local_id(0) == 0) atom_or(&flags[my_y], 1);
+#else
+  while (flags[my_y+r] == 0){}
+   if (get_local_id(0) == 0) flags[my_y] = 1;
+#endif
+
+  i = 0;
+  // Store in global memory
+  // C_REGS columns from registers
+  #pragma unroll
+  //for (int my_y_row = my_y; my_y_row < my_y + rows && my_y_row > 0; my_y_row++)
+  for (int my_y_row = my_y + rows - 1; my_y_row >= my_y && my_y_row > 0; my_y_row--)
+    #pragma unroll
+    for (int my_x = get_local_id(0); my_x < C_REGS && my_x < x_size; my_x += get_local_size(0), i++){
+      matrix[my_y_row * pad_size + my_x] = reg[i];
+    }
+  // Rest of columns from __local
+  shm_idx = get_local_id(0);
+  for (int my_y_row = my_y + rows - 1; my_y_row >= my_y && my_y_row > 0; my_y_row--){
+    for (int j = 0; j < k; j++, shm_idx += get_local_size(0))
+      matrix[my_y_row * pad_size + C_REGS + j * get_local_size(0) + get_local_id(0)] = shm[shm_idx];
+    if (get_local_id(0) < x_size - C_REGS - k * get_local_size(0))
+      matrix[my_y_row * pad_size + C_REGS + k * get_local_size(0) + get_local_id(0)] = shm[shm_idx];
+    shm_idx += x_size - C_REGS - k * get_local_size(0);
+  }
+  // Pad with zeroes
+  #pragma unroll
+  for (int my_y_row = my_y + rows - 1; my_y_row >= my_y && my_y_row >= 0; my_y_row--)
+    #pragma unroll
+    for (int my_x = x_size + get_local_id(0); my_x < pad_size; my_x += get_local_size(0)){
+      matrix[my_y_row * pad_size + my_x] = 0.0f;
+    }
+
+}
+
+#undef C_REGS
+#define REGS 64
+#define ATOM 0
+#define C_REGS 2048
+__kernel void padding_2048( __global float *matrix,
+    int x_size,
+    int pad_size,
+    int y_size,
+    int rows,
+    __local float *shm,
+    volatile __global unsigned int *flags)
+{
+  // Dynamic allocation of runtime workgroup id
+  __local int gid_;
+  if (get_local_id(0) == 0) gid_ = atom_sub(&flags[0], rows);
+  barrier(CLK_LOCAL_MEM_FENCE);
+  int my_y = gid_ - rows;
+
+  // Declare on-chip memory
+  float reg[REGS];
+  int i = 0;
+  // Load in on-chip memory
+  // C_REGS columns to registers
+  #pragma unroll
+  for (int my_y_row = my_y + rows - 1; my_y_row >= my_y && my_y_row > 0; my_y_row--)
+    #pragma unroll
+    for (int my_x = get_local_id(0); my_x < C_REGS && my_x < x_size; my_x += get_local_size(0), i++){
+      reg[i] = matrix[my_y_row * x_size + my_x];
+    }
+  // Rest of columns to __local
+  int shm_idx = get_local_id(0);
+  int k = (x_size - C_REGS) / get_local_size(0);
+  for (int my_y_row = my_y + rows - 1; my_y_row >= my_y && my_y_row > 0; my_y_row--){
+    for (int j = 0; j < k; j++, shm_idx += get_local_size(0))
+      shm[shm_idx] = matrix[my_y_row * x_size + C_REGS + j * get_local_size(0) + get_local_id(0)];
+    if (get_local_id(0) < x_size - C_REGS - k * get_local_size(0))
+      shm[shm_idx] = matrix[my_y_row * x_size + C_REGS + k * get_local_size(0) + get_local_id(0)];
+    shm_idx += x_size - C_REGS - k * get_local_size(0);
+  }
+
+  barrier(CLK_LOCAL_MEM_FENCE);
+
+  // Set global synch
+  int r = rows;
+#if ATOM
+  while (atom_or(&flags[my_y+r], 0) == 0){}
+  if (get_local_id(0) == 0) atom_or(&flags[my_y], 1);
+#else
+  while (flags[my_y+r] == 0){}
+   if (get_local_id(0) == 0) flags[my_y] = 1;
+#endif
+
+  i = 0;
+  // Store in global memory
+  // C_REGS columns from registers
+  #pragma unroll
+  //for (int my_y_row = my_y; my_y_row < my_y + rows && my_y_row > 0; my_y_row++)
+  for (int my_y_row = my_y + rows - 1; my_y_row >= my_y && my_y_row > 0; my_y_row--)
+    #pragma unroll
+    for (int my_x = get_local_id(0); my_x < C_REGS && my_x < x_size; my_x += get_local_size(0), i++){
+      matrix[my_y_row * pad_size + my_x] = reg[i];
+    }
+  // Rest of columns from __local
+  shm_idx = get_local_id(0);
+  for (int my_y_row = my_y + rows - 1; my_y_row >= my_y && my_y_row > 0; my_y_row--){
+    for (int j = 0; j < k; j++, shm_idx += get_local_size(0))
+      matrix[my_y_row * pad_size + C_REGS + j * get_local_size(0) + get_local_id(0)] = shm[shm_idx];
+    if (get_local_id(0) < x_size - C_REGS - k * get_local_size(0))
+      matrix[my_y_row * pad_size + C_REGS + k * get_local_size(0) + get_local_id(0)] = shm[shm_idx];
+    shm_idx += x_size - C_REGS - k * get_local_size(0);
+  }
+  // Pad with zeroes
+  #pragma unroll
+  for (int my_y_row = my_y + rows - 1; my_y_row >= my_y && my_y_row >= 0; my_y_row--)
+    #pragma unroll
+    for (int my_x = x_size + get_local_id(0); my_x < pad_size; my_x += get_local_size(0)){
+      matrix[my_y_row * pad_size + my_x] = 0.0f;
+    }
+
+}
+
+#undef C_REGS
+#define REGS 64
+#define ATOM 0
+#define C_REGS 4096 
+__kernel void padding_4096( __global float *matrix,
+    int x_size,
+    int pad_size,
+    int y_size,
+    int rows,
+    __local float *shm,
+    volatile __global unsigned int *flags)
+{
+  // Dynamic allocation of runtime workgroup id
+  __local int gid_;
+  if (get_local_id(0) == 0) gid_ = atom_sub(&flags[0], rows);
+  barrier(CLK_LOCAL_MEM_FENCE);
+  int my_y = gid_ - rows;
+
+  // Declare on-chip memory
+  float reg[REGS];
+  int i = 0;
+  // Load in on-chip memory
+  // C_REGS columns to registers
+  #pragma unroll
+  for (int my_y_row = my_y + rows - 1; my_y_row >= my_y && my_y_row > 0; my_y_row--)
+    #pragma unroll
+    for (int my_x = get_local_id(0); my_x < C_REGS && my_x < x_size; my_x += get_local_size(0), i++){
+      reg[i] = matrix[my_y_row * x_size + my_x];
+    }
+  // Rest of columns to __local
+  int shm_idx = get_local_id(0);
+  int k = (x_size - C_REGS) / get_local_size(0);
+  for (int my_y_row = my_y + rows - 1; my_y_row >= my_y && my_y_row > 0; my_y_row--){
+    for (int j = 0; j < k; j++, shm_idx += get_local_size(0))
+      shm[shm_idx] = matrix[my_y_row * x_size + C_REGS + j * get_local_size(0) + get_local_id(0)];
+    if (get_local_id(0) < x_size - C_REGS - k * get_local_size(0))
+      shm[shm_idx] = matrix[my_y_row * x_size + C_REGS + k * get_local_size(0) + get_local_id(0)];
+    shm_idx += x_size - C_REGS - k * get_local_size(0);
+  }
+
+  barrier(CLK_LOCAL_MEM_FENCE);
+
+  // Set global synch
+  int r = rows;
+#if ATOM
+  while (atom_or(&flags[my_y+r], 0) == 0){}
+  if (get_local_id(0) == 0) atom_or(&flags[my_y], 1);
+#else
+  while (flags[my_y+r] == 0){}
+   if (get_local_id(0) == 0) flags[my_y] = 1;
+#endif
+
+  i = 0;
+  // Store in global memory
+  // C_REGS columns from registers
+  #pragma unroll
+  //for (int my_y_row = my_y; my_y_row < my_y + rows && my_y_row > 0; my_y_row++)
+  for (int my_y_row = my_y + rows - 1; my_y_row >= my_y && my_y_row > 0; my_y_row--)
+    #pragma unroll
+    for (int my_x = get_local_id(0); my_x < C_REGS && my_x < x_size; my_x += get_local_size(0), i++){
+      matrix[my_y_row * pad_size + my_x] = reg[i];
+    }
+  // Rest of columns from __local
+  shm_idx = get_local_id(0);
+  for (int my_y_row = my_y + rows - 1; my_y_row >= my_y && my_y_row > 0; my_y_row--){
+    for (int j = 0; j < k; j++, shm_idx += get_local_size(0))
+      matrix[my_y_row * pad_size + C_REGS + j * get_local_size(0) + get_local_id(0)] = shm[shm_idx];
+    if (get_local_id(0) < x_size - C_REGS - k * get_local_size(0))
+      matrix[my_y_row * pad_size + C_REGS + k * get_local_size(0) + get_local_id(0)] = shm[shm_idx];
+    shm_idx += x_size - C_REGS - k * get_local_size(0);
+  }
+  // Pad with zeroes
+  #pragma unroll
+  for (int my_y_row = my_y + rows - 1; my_y_row >= my_y && my_y_row >= 0; my_y_row--)
+    #pragma unroll
+    for (int my_x = x_size + get_local_id(0); my_x < pad_size; my_x += get_local_size(0)){
+      matrix[my_y_row * pad_size + my_x] = 0.0f;
+    }
+
+}
+
+#undef C_REGS
+#define REGS 64
+#define ATOM 0
+#define C_REGS 8192 
+__kernel void padding_8192( __global float *matrix,
+    int x_size,
+    int pad_size,
+    int y_size,
+    int rows,
+    __local float *shm,
+    volatile __global unsigned int *flags)
+{
+  // Dynamic allocation of runtime workgroup id
+  __local int gid_;
+  if (get_local_id(0) == 0) gid_ = atom_sub(&flags[0], rows);
+  barrier(CLK_LOCAL_MEM_FENCE);
+  int my_y = gid_ - rows;
+
+  // Declare on-chip memory
+  float reg[REGS];
+  int i = 0;
+  // Load in on-chip memory
+  // C_REGS columns to registers
+  #pragma unroll
+  for (int my_y_row = my_y + rows - 1; my_y_row >= my_y && my_y_row > 0; my_y_row--)
+    #pragma unroll
+    for (int my_x = get_local_id(0); my_x < C_REGS && my_x < x_size; my_x += get_local_size(0), i++){
+      reg[i] = matrix[my_y_row * x_size + my_x];
+    }
+  // Rest of columns to __local
+  int shm_idx = get_local_id(0);
+  int k = (x_size - C_REGS) / get_local_size(0);
+  for (int my_y_row = my_y + rows - 1; my_y_row >= my_y && my_y_row > 0; my_y_row--){
+    for (int j = 0; j < k; j++, shm_idx += get_local_size(0))
+      shm[shm_idx] = matrix[my_y_row * x_size + C_REGS + j * get_local_size(0) + get_local_id(0)];
+    if (get_local_id(0) < x_size - C_REGS - k * get_local_size(0))
+      shm[shm_idx] = matrix[my_y_row * x_size + C_REGS + k * get_local_size(0) + get_local_id(0)];
+    shm_idx += x_size - C_REGS - k * get_local_size(0);
+  }
+
+  barrier(CLK_LOCAL_MEM_FENCE);
+
+  // Set global synch
+  int r = rows;
+#if ATOM
+  while (atom_or(&flags[my_y+r], 0) == 0){}
+  if (get_local_id(0) == 0) atom_or(&flags[my_y], 1);
+#else
+  while (flags[my_y+r] == 0){}
+   if (get_local_id(0) == 0) flags[my_y] = 1;
+#endif
+
+  i = 0;
+  // Store in global memory
+  // C_REGS columns from registers
+  #pragma unroll
+  //for (int my_y_row = my_y; my_y_row < my_y + rows && my_y_row > 0; my_y_row++)
+  for (int my_y_row = my_y + rows - 1; my_y_row >= my_y && my_y_row > 0; my_y_row--)
+    #pragma unroll
+    for (int my_x = get_local_id(0); my_x < C_REGS && my_x < x_size; my_x += get_local_size(0), i++){
+      matrix[my_y_row * pad_size + my_x] = reg[i];
+    }
+  // Rest of columns from __local
+  shm_idx = get_local_id(0);
+  for (int my_y_row = my_y + rows - 1; my_y_row >= my_y && my_y_row > 0; my_y_row--){
+    for (int j = 0; j < k; j++, shm_idx += get_local_size(0))
+      matrix[my_y_row * pad_size + C_REGS + j * get_local_size(0) + get_local_id(0)] = shm[shm_idx];
+    if (get_local_id(0) < x_size - C_REGS - k * get_local_size(0))
+      matrix[my_y_row * pad_size + C_REGS + k * get_local_size(0) + get_local_id(0)] = shm[shm_idx];
+    shm_idx += x_size - C_REGS - k * get_local_size(0);
+  }
+  // Pad with zeroes
+  #pragma unroll
+  for (int my_y_row = my_y + rows - 1; my_y_row >= my_y && my_y_row >= 0; my_y_row--)
+    #pragma unroll
+    for (int my_x = x_size + get_local_id(0); my_x < pad_size; my_x += get_local_size(0)){
+      matrix[my_y_row * pad_size + my_x] = 0.0f;
+    }
+
+}
+
+#undef C_REGS
+#define REGS 64
+#define ATOM 0
+#define C_REGS 16384
+__kernel void padding_16384( __global float *matrix,
+    int x_size,
+    int pad_size,
+    int y_size,
+    int rows,
+    __local float *shm,
+    volatile __global unsigned int *flags)
+{
+  // Dynamic allocation of runtime workgroup id
+  __local int gid_;
+  if (get_local_id(0) == 0) gid_ = atom_sub(&flags[0], rows);
+  barrier(CLK_LOCAL_MEM_FENCE);
+  int my_y = gid_ - rows;
+
+  // Declare on-chip memory
+  float reg[REGS];
+  int i = 0;
+  // Load in on-chip memory
+  // C_REGS columns to registers
+  #pragma unroll
+  for (int my_y_row = my_y + rows - 1; my_y_row >= my_y && my_y_row > 0; my_y_row--)
+    #pragma unroll
+    for (int my_x = get_local_id(0); my_x < C_REGS && my_x < x_size; my_x += get_local_size(0), i++){
+      reg[i] = matrix[my_y_row * x_size + my_x];
+    }
+  // Rest of columns to __local
+  int shm_idx = get_local_id(0);
+  int k = (x_size - C_REGS) / get_local_size(0);
+  for (int my_y_row = my_y + rows - 1; my_y_row >= my_y && my_y_row > 0; my_y_row--){
+    for (int j = 0; j < k; j++, shm_idx += get_local_size(0))
+      shm[shm_idx] = matrix[my_y_row * x_size + C_REGS + j * get_local_size(0) + get_local_id(0)];
+    if (get_local_id(0) < x_size - C_REGS - k * get_local_size(0))
+      shm[shm_idx] = matrix[my_y_row * x_size + C_REGS + k * get_local_size(0) + get_local_id(0)];
+    shm_idx += x_size - C_REGS - k * get_local_size(0);
+  }
+
+  barrier(CLK_LOCAL_MEM_FENCE);
+
+  // Set global synch
+  int r = rows;
+#if ATOM
+  while (atom_or(&flags[my_y+r], 0) == 0){}
+  if (get_local_id(0) == 0) atom_or(&flags[my_y], 1);
+#else
+  while (flags[my_y+r] == 0){}
+   if (get_local_id(0) == 0) flags[my_y] = 1;
+#endif
+
+  i = 0;
+  // Store in global memory
+  // C_REGS columns from registers
+  #pragma unroll
+  //for (int my_y_row = my_y; my_y_row < my_y + rows && my_y_row > 0; my_y_row++)
+  for (int my_y_row = my_y + rows - 1; my_y_row >= my_y && my_y_row > 0; my_y_row--)
+    #pragma unroll
+    for (int my_x = get_local_id(0); my_x < C_REGS && my_x < x_size; my_x += get_local_size(0), i++){
+      matrix[my_y_row * pad_size + my_x] = reg[i];
+    }
+  // Rest of columns from __local
+  shm_idx = get_local_id(0);
+  for (int my_y_row = my_y + rows - 1; my_y_row >= my_y && my_y_row > 0; my_y_row--){
+    for (int j = 0; j < k; j++, shm_idx += get_local_size(0))
+      matrix[my_y_row * pad_size + C_REGS + j * get_local_size(0) + get_local_id(0)] = shm[shm_idx];
+    if (get_local_id(0) < x_size - C_REGS - k * get_local_size(0))
+      matrix[my_y_row * pad_size + C_REGS + k * get_local_size(0) + get_local_id(0)] = shm[shm_idx];
+    shm_idx += x_size - C_REGS - k * get_local_size(0);
+  }
+  // Pad with zeroes
+  #pragma unroll
+  for (int my_y_row = my_y + rows - 1; my_y_row >= my_y && my_y_row >= 0; my_y_row--)
+    #pragma unroll
+    for (int my_x = x_size + get_local_id(0); my_x < pad_size; my_x += get_local_size(0)){
+      matrix[my_y_row * pad_size + my_x] = 0.0f;
+    }
+
+}
+

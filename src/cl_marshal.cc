@@ -108,120 +108,6 @@ extern "C" void cl_marshal_finalize(void) {
   marshalprog->Finalize();
 }
 
-extern "C" bool cl_padding(cl_command_queue cl_queue,
-    cl_mem src, int x_size, int y_size, int pad_size, cl_ulong *elapsed_time) {
-  // Standard preparation of invoking a kernel
-  cl::CommandQueue queue = cl::CommandQueue(cl_queue);
-  Profiling prof(queue, "Padding");
-  cl::Buffer buffer = cl::Buffer(src);
-  clRetainMemObject(src);
-  cl::Context context;
-  if(buffer.getInfo(CL_MEM_CONTEXT, &context) != CL_SUCCESS)
-    return true;
-  MarshalProg *marshalprog = MarshalProgSingleton::Instance();
-  marshalprog->Init(context());
-
-  // Atomic flags
-  cl_int *flags = (cl_int *)calloc(sizeof(cl_int), y_size + 1);
-  flags[y_size] = 1;
-  cl_int err;
-  cl::Buffer d_flags = cl::Buffer(context, CL_MEM_READ_WRITE,
-      sizeof(cl_int)*(y_size + 1), NULL, &err);
-  if (err != CL_SUCCESS)
-    return true;
-  err = queue.enqueueWriteBuffer(d_flags, CL_TRUE, 0,
-      sizeof(cl_int)*(y_size + 1), flags);
-  free(flags);
-  if (err != CL_SUCCESS)
-    return true;
-
-  cl::Kernel kernel(marshalprog->program, "padding");
-  if (CL_SUCCESS != kernel.setArg(0, buffer))
-    return true;
-  err = kernel.setArg(1, x_size);
-  if (err != CL_SUCCESS)
-    return true;
-  err = kernel.setArg(2, pad_size);
-  err |= kernel.setArg(3, y_size);
-  err |= kernel.setArg(4, MAX_MEM*sizeof(cl_float), NULL);
-  if (err != CL_SUCCESS)
-    return true;
-  err = kernel.setArg(5, d_flags);
-  if (err != CL_SUCCESS)
-    return true;
-
-  cl::NDRange global(13*NR_THREADS), local(NR_THREADS);
-  err = queue.enqueueNDRangeKernel(kernel, cl::NullRange, global, local, NULL,
-    prof.GetEvent());
-  if (err != CL_SUCCESS)
-    return true;
-#ifdef LIBMARSHAL_OCL_PROFILE
-  if (elapsed_time) {
-    *elapsed_time += prof.Report();
-  } else {
-    prof.Report(x_size*y_size*sizeof(float)*2);
-  }
-#endif
-  return false;
-}
-
-extern "C" bool cl_unpadding(cl_command_queue cl_queue,
-    cl_mem src, int x_size, int y_size, int pad_size, cl_ulong *elapsed_time) {
-  // Standard preparation of invoking a kernel
-  cl::CommandQueue queue = cl::CommandQueue(cl_queue);
-  Profiling prof(queue, "Unpadding");
-  cl::Buffer buffer = cl::Buffer(src);
-  clRetainMemObject(src);
-  cl::Context context;
-  if(buffer.getInfo(CL_MEM_CONTEXT, &context) != CL_SUCCESS)
-    return true;
-  MarshalProg *marshalprog = MarshalProgSingleton::Instance();
-  marshalprog->Init(context());
-
-  // Atomic flags
-  cl_int *flags = (cl_int *)calloc(sizeof(cl_int), y_size + 1);
-  flags[0] = 1;
-  cl_int err;
-  cl::Buffer d_flags = cl::Buffer(context, CL_MEM_READ_WRITE,
-      sizeof(cl_int)*(y_size + 1), NULL, &err);
-  if (err != CL_SUCCESS)
-    return true;
-  err = queue.enqueueWriteBuffer(d_flags, CL_TRUE, 0,
-      sizeof(cl_int)*(y_size + 1), flags);
-  free(flags);
-  if (err != CL_SUCCESS)
-    return true;
-
-  cl::Kernel kernel(marshalprog->program, "unpadding");
-  if (CL_SUCCESS != kernel.setArg(0, buffer))
-    return true;
-  err = kernel.setArg(1, x_size);
-  if (err != CL_SUCCESS)
-    return true;
-  err = kernel.setArg(2, pad_size);
-  err |= kernel.setArg(3, y_size);
-  err |= kernel.setArg(4, MAX_MEM*sizeof(cl_float), NULL);
-  if (err != CL_SUCCESS)
-    return true;
-  err = kernel.setArg(5, d_flags);
-  if (err != CL_SUCCESS)
-    return true;
-
-  cl::NDRange global(13*NR_THREADS), local(NR_THREADS);
-  err = queue.enqueueNDRangeKernel(kernel, cl::NullRange, global, local, NULL,
-    prof.GetEvent());
-  if (err != CL_SUCCESS)
-    return true;
-#ifdef LIBMARSHAL_OCL_PROFILE
-  if (elapsed_time) {
-    *elapsed_time += prof.Report();
-  } else {
-    prof.Report(x_size*y_size*sizeof(float)*2);
-  }
-#endif
-  return false;
-}
-
 #define IS_POW2(x) (x && !(x &( x- 1)))
 //#define IS_POW2(x) 0
 // v: 32-bit word input to count zero bits on right
@@ -574,7 +460,7 @@ bool _cl_transpose_0100(cl_command_queue cl_queue,
 #endif
 #endif
 
-#define LOCALMEM_TILING 0
+#define LOCALMEM_TILING 1
 #if SP
 #if LOCALMEM_TILING
   err = kernel.setArg(5, b<192?(b*(WARPS*WARP_SIZE/v_warp_size)*sizeof(cl_float)):(b*sizeof(cl_float)), NULL);
@@ -952,5 +838,170 @@ extern "C" bool cl_aos_asta(cl_command_queue queue, cl_mem src, int height,
   int width, int tile_size, int R) {
   return cl_aos_asta_bs(queue, src, height, width, tile_size) &&
     cl_aos_asta_pttwac(queue, src, height, width, tile_size, R, 1);
+}
+
+//////////////////////////////////////////////////////////////////////////////////////////////////////
+extern "C" bool cl_padding(cl_command_queue cl_queue,
+    cl_mem src, int x_size, int y_size, int pad_size, cl_ulong *elapsed_time) {
+  // Standard preparation of invoking a kernel
+  cl::CommandQueue queue = cl::CommandQueue(cl_queue);
+  Profiling prof(queue, "Padding");
+  cl::Buffer buffer = cl::Buffer(src);
+  clRetainMemObject(src);
+  cl::Context context;
+  if(buffer.getInfo(CL_MEM_CONTEXT, &context) != CL_SUCCESS)
+    return true;
+  MarshalProg *marshalprog = MarshalProgSingleton::Instance();
+  marshalprog->Init(context());
+
+  // Atomic flags
+  cl_int *flags = (cl_int *)calloc(sizeof(cl_int), y_size + 1);
+  flags[0] = y_size;
+  flags[y_size] = 1;
+  cl_int err;
+  cl::Buffer d_flags = cl::Buffer(context, CL_MEM_READ_WRITE,
+      sizeof(cl_int)*(y_size + 1), NULL, &err);
+  if (err != CL_SUCCESS)
+    return true;
+  err = queue.enqueueWriteBuffer(d_flags, CL_TRUE, 0,
+      sizeof(cl_int)*(y_size + 1), flags);
+  free(flags);
+  if (err != CL_SUCCESS)
+    return true;
+
+#define REGS 64
+  // Calculate rows per work-group
+  int ldim = NR_THREADS;
+  int C_REG_th = x_size / ldim;
+  C_REG_th = pow(2, (int)(log(C_REG_th)/log(2)));
+  //printf("C_REG_th = %d\tC_REGS = %d\t", C_REG_th, C_REG_th*ldim);
+  int rows, shm_size, i = 0;
+  do{
+    rows = REGS / C_REG_th - i;
+    shm_size = ((x_size - C_REG_th * ldim) * rows + ldim - 1) / ldim * ldim;
+    i++;
+  }while(shm_size >= MAX_MEM);
+  //printf("rows = %d\t", rows);
+  //printf("C_ShMem = %d\tshm_size = %d\t", x_size-C_REG_th*ldim, shm_size);
+  int num_wg = (y_size + rows - 1) / rows;
+  //printf("num_wg = %d\t", num_wg);
+  if (num_wg < 32 && y_size >= 32){
+    num_wg = 32;
+    rows = pow(2, (int)(log(y_size / num_wg + 1)/log(2)));
+    //printf("num_wg = %d\trows = %d\t", num_wg, rows);
+  }
+
+  cl::Kernel kernel(marshalprog->program, C_REG_th*ldim == 1024 ? "padding_1024" : C_REG_th*ldim == 2048 ? "padding_2048" : C_REG_th*ldim == 4096 ? "padding_4096" : C_REG_th*ldim == 8192 ? "padding_8192" : "padding_16384");
+
+  if (CL_SUCCESS != kernel.setArg(0, buffer))
+    return true;
+  err = kernel.setArg(1, x_size);
+  if (err != CL_SUCCESS)
+    return true;
+  err = kernel.setArg(2, pad_size);
+  err |= kernel.setArg(3, y_size);
+  err |= kernel.setArg(4, rows);
+  err |= kernel.setArg(5, shm_size*sizeof(cl_float), NULL);
+  if (err != CL_SUCCESS)
+    return true;
+  err = kernel.setArg(6, d_flags);
+  if (err != CL_SUCCESS)
+    return true;
+
+  cl::NDRange global(num_wg*ldim), local(ldim);
+  err = queue.enqueueNDRangeKernel(kernel, cl::NullRange, global, local, NULL,
+    prof.GetEvent());
+  if (err != CL_SUCCESS)
+    return true;
+#ifdef LIBMARSHAL_OCL_PROFILE
+  if (elapsed_time) {
+    *elapsed_time += prof.Report();
+  } else {
+    prof.Report(x_size*y_size*sizeof(float)*2);
+  }
+#endif
+  return false;
+}
+
+extern "C" bool cl_unpadding(cl_command_queue cl_queue,
+    cl_mem src, int x_size, int y_size, int pad_size, cl_ulong *elapsed_time) {
+  // Standard preparation of invoking a kernel
+  cl::CommandQueue queue = cl::CommandQueue(cl_queue);
+  Profiling prof(queue, "Unpadding");
+  cl::Buffer buffer = cl::Buffer(src);
+  clRetainMemObject(src);
+  cl::Context context;
+  if(buffer.getInfo(CL_MEM_CONTEXT, &context) != CL_SUCCESS)
+    return true;
+  MarshalProg *marshalprog = MarshalProgSingleton::Instance();
+  marshalprog->Init(context());
+
+  // Atomic flags
+  cl_int *flags = (cl_int *)calloc(sizeof(cl_int), y_size + 1);
+  flags[0] = 1;
+  flags[y_size] = 1;
+  cl_int err;
+  cl::Buffer d_flags = cl::Buffer(context, CL_MEM_READ_WRITE,
+      sizeof(cl_int)*(y_size + 1), NULL, &err);
+  if (err != CL_SUCCESS)
+    return true;
+  err = queue.enqueueWriteBuffer(d_flags, CL_TRUE, 0,
+      sizeof(cl_int)*(y_size + 1), flags);
+  free(flags);
+  if (err != CL_SUCCESS)
+    return true;
+
+#define REGS 64
+  // Calculate rows per work-group
+  int ldim = NR_THREADS;
+  int C_REG_th = x_size / ldim;
+  C_REG_th = pow(2, (int)(log(C_REG_th)/log(2)));
+  //printf("C_REG_th = %d\tC_REGS = %d\t", C_REG_th, C_REG_th*ldim);
+  int rows, shm_size, i = 0;
+  do{
+    rows = REGS / C_REG_th - i;
+    shm_size = ((x_size - C_REG_th * ldim) * rows + ldim - 1) / ldim * ldim;
+    i++;
+  }while(shm_size >= MAX_MEM);
+  //printf("rows = %d\t", rows);
+  //printf("C_ShMem = %d\tshm_size = %d\t", x_size-C_REG_th*ldim, shm_size);
+  int num_wg = (y_size + rows - 1) / rows;
+  //printf("num_wg = %d\t", num_wg);
+  if (num_wg < 32 && y_size >= 32){
+    num_wg = 32;
+    rows = pow(2, (int)(log(y_size / num_wg + 1)/log(2)));
+    //printf("num_wg = %d\trows = %d\t", num_wg, rows);
+  }
+
+  cl::Kernel kernel(marshalprog->program, C_REG_th*ldim == 1024 ? "unpadding_1024" : C_REG_th*ldim == 2048 ? "unpadding_2048" : C_REG_th*ldim == 4096 ? "unpadding_4096" : C_REG_th*ldim == 8192 ? "unpadding_8192" : "unpadding_16384");
+
+  if (CL_SUCCESS != kernel.setArg(0, buffer))
+    return true;
+  err = kernel.setArg(1, x_size);
+  if (err != CL_SUCCESS)
+    return true;
+  err = kernel.setArg(2, pad_size);
+  err |= kernel.setArg(3, y_size);
+  err |= kernel.setArg(4, rows);
+  err |= kernel.setArg(5, shm_size*sizeof(cl_float), NULL);
+  if (err != CL_SUCCESS)
+    return true;
+  err = kernel.setArg(6, d_flags);
+  if (err != CL_SUCCESS)
+    return true;
+
+  cl::NDRange global(num_wg*ldim), local(ldim);
+  err = queue.enqueueNDRangeKernel(kernel, cl::NullRange, global, local, NULL,
+    prof.GetEvent());
+  if (err != CL_SUCCESS)
+    return true;
+#ifdef LIBMARSHAL_OCL_PROFILE
+  if (elapsed_time) {
+    *elapsed_time += prof.Report();
+  } else {
+    prof.Report(x_size*y_size*sizeof(float)*2);
+  }
+#endif
+  return false;
 }
 
