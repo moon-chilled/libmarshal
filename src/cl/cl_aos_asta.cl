@@ -331,7 +331,7 @@ __kernel void transpose_100(__global float *input,
 //  get_local_size(0) == wavefront size;
 //  get_local_size(1) == number of warps
 #define P_IPT 0
-#define LOCALMEM_TILING 1 // 1 - Local memory tiling; 0 - Register tiling
+#define LOCALMEM_TILING 0 // 1 - Local memory tiling; 0 - Register tiling
 #if LOCALMEM_TILING
 void _transpose_100(__global float *input,
     int A, int B, int b, __global int *finished, volatile __local float *data,
@@ -757,6 +757,266 @@ __kernel void transpose_0100_b(__global float *input,
 #undef LOCALMEM_TILING
 
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+#define REGS 16
+#define ATOM 0
+__kernel void padding( __global float *matrix,
+    int x_size,
+    int pad_size,
+    int y_size,
+    int rows,
+    __local float *shm,
+    volatile __global unsigned int *flags)
+{
+  const int matrix_size = y_size * pad_size;
+  const int num_flags = matrix_size / (get_local_size(0) * REGS);
+  // Dynamic allocation of runtime workgroup id
+  __local int gid_;
+  if (get_local_id(0) == 0) gid_ = atom_add(&flags[num_flags + 1], 1);
+  barrier(CLK_LOCAL_MEM_FENCE);
+  int my_s = gid_;
+
+  // Declare on-chip memory
+  float reg[REGS];
+  int pos = matrix_size - 1 - (my_s * REGS * get_local_size(0) + get_local_id(0));
+  int my_s_row = pos / pad_size;
+  int my_x = pos % pad_size;
+  int pos2 = my_s_row * x_size + my_x;
+  // Load in on-chip memory
+  #pragma unroll
+  for (int j = 0; j < REGS; j++){
+    if (pos2 >= 0 && my_x < x_size) reg[j] = matrix[pos2];
+    else reg[j] = 0;
+    pos -= get_local_size(0);
+    my_s_row = pos / pad_size;
+    my_x = pos % pad_size;
+    pos2 = my_s_row * x_size + my_x;
+  }
+
+  barrier(CLK_LOCAL_MEM_FENCE);
+
+  // Set global synch
+#if ATOM
+  while (atom_or(&flags[my_s], 0) == 0){}
+  if (get_local_id(0) == 0) atom_or(&flags[my_s + 1], 1);
+#else
+  while (flags[my_s] == 0){}
+  if (get_local_id(0) == 0) flags[my_s + 1] = 1;
+#endif
+
+  pos = matrix_size - 1 - (my_s * REGS * get_local_size(0) + get_local_id(0));
+  // Store to global memory 
+  #pragma unroll
+  for (int j = 0; j < REGS; j++){
+    if (pos >= 0) matrix[pos] = reg[j];
+    pos -= get_local_size(0);
+  }
+}
+
+#undef REGS
+#define REGS 32
+#define ATOM 0
+__kernel void unpadding( __global float *matrix,
+    int x_size,
+    int pad_size,
+    int y_size,
+    int rows,
+    __local float *shm,
+    volatile __global unsigned int *flags)
+{
+  const int num_flags = (y_size * pad_size) / (get_local_size(0) * REGS);
+  // Dynamic allocation of runtime workgroup id
+  __local int gid_;
+  if (get_local_id(0) == 0) gid_ = atom_add(&flags[num_flags + 1], 1);
+  barrier(CLK_LOCAL_MEM_FENCE);
+  const int my_s = gid_;
+
+  // Declare on-chip memory
+  float reg[REGS];
+  int pos = my_s * REGS * get_local_size(0) + get_local_id(0);
+  // Load in on-chip memory
+  #pragma unroll
+  for (int j = 0; j < REGS; j++){
+    if (pos < y_size * pad_size) reg[j] = matrix[pos];
+    pos += get_local_size(0);
+  }
+
+  barrier(CLK_LOCAL_MEM_FENCE);
+
+  // Set global synch
+#if ATOM
+  while (atom_or(&flags[my_s], 0) == 0){}
+  if (get_local_id(0) == 0) atom_or(&flags[my_s + 1], 1);
+#else
+  while (flags[my_s] == 0){}
+  if (get_local_id(0) == 0) flags[my_s + 1] = 1;
+#endif
+
+  pos = my_s * REGS * get_local_size(0) + get_local_id(0);
+  int my_s_row = pos / pad_size;
+  int my_x = pos % pad_size;
+  // Store to global memory 
+  //#pragma unroll
+  for (int j = 0; j < REGS; j++){
+    if (my_x < x_size && pos < y_size * pad_size) matrix[my_s_row * x_size + my_x] = reg[j];
+    pos += get_local_size(0);
+    my_s_row = pos / pad_size;
+    my_x = pos % pad_size;
+  }
+  // Zeros at the end
+  if ((my_s + 1) * REGS * get_local_size(0) >= y_size * x_size)
+    for (int j = y_size * x_size + get_local_id(0); j < y_size * pad_size; j += get_local_size(0)){
+      matrix[j] = 0.0f;
+    }
+}
+
+__kernel void padding_flex( __global float* matrix,
+    int x_size,
+    int pad_size,
+    int y_size,
+    int y_index, __local float *shm, int shm_size)
+{
+  do{
+    int my_y = y_index + get_group_id(0);
+    int my_x = get_local_id(0);
+    int tiles = pad_size % shm_size == 0 ? (pad_size / shm_size) : (pad_size / shm_size) + 1;
+    for (int t = tiles - 1; t >= 0; t--){
+#if MORE_SHAREDMEM_THAN_THREADS
+      for (int my_x = get_local_id(0); my_x < shm_size; my_x += get_local_size(0)) {
+        if (t * shm_size + my_x < x_size)
+          shm[my_x] = matrix[my_y * x_size + t * shm_size + my_x];
+        else
+          shm[my_x] = 0.0f;
+      }
+      if (get_num_groups(0) == 1)
+        barrier(CLK_LOCAL_MEM_FENCE);
+      for (int my_x = get_local_id(0); my_x < shm_size; my_x += get_local_size(0)) {
+        if (t * shm_size + my_x < pad_size)
+          matrix[my_y * pad_size + t * shm_size + my_x] = shm[my_x];
+      }
+#else
+      if (t * shm_size + my_x < x_size)
+        shm[my_x] = matrix[my_y * x_size + t * shm_size + my_x];
+      else
+        shm[my_x] = 0.0f;
+      if (get_num_groups(0) == 1)
+        barrier(CLK_LOCAL_MEM_FENCE);
+      if (t * shm_size + my_x < pad_size)
+        matrix[my_y * pad_size + t * shm_size + my_x] = shm[my_x];
+#endif
+    }
+  } while (get_num_groups(0) == 1 && --y_index >= 0);
+}
+
+#define REGS 64
+#define ATOM 0
+/*__kernel void padding( __global float *matrix,
+    int x_size,
+    int pad_size,
+    int y_size,
+    int rows,
+    __local float *shm,
+    volatile __global unsigned int *flags)
+{
+  // Dynamic allocation of runtime workgroup id
+  __local int gid_;
+  if (get_local_id(0) == 0) gid_ = atom_sub(&flags[0], rows);
+  barrier(CLK_LOCAL_MEM_FENCE);
+  int my_y = gid_;
+
+  // Declare on-chip memory
+  float reg[REGS];
+  int i = 0;
+  // Load in on-chip memory
+  // rows rows to registers
+  #pragma unroll
+  for (int j = get_local_id(0); j < x_size * rows && j < my_y * x_size - 1; j += get_local_size(0), i++){
+    reg[i] = matrix[my_y * x_size - 1 - j];
+  }
+
+  barrier(CLK_LOCAL_MEM_FENCE);
+
+  // Set global synch
+#if ATOM
+  while (atom_or(&flags[my_y], 0) == 0){}
+  if (get_local_id(0) == 0) atom_or(&flags[my_y - rows], 1);
+#else
+  while (flags[my_y] == 0){}
+  if (get_local_id(0) == 0) flags[my_y - rows] = 1;
+#endif
+
+  int pos = my_y * x_size - 1 - get_local_id(0);
+  // Store to global memory 
+  #pragma unroll
+  for (int j = 0; j < i; j++){
+    int my_y_row = pos / x_size;
+    int my_x = pos % x_size;
+    matrix[my_y_row * pad_size + my_x] = reg[j];
+    pos -= get_local_size(0);
+  }
+  // Pad with zeroes
+  #pragma unroll
+  for (int j = get_local_id(0); j < rows * (pad_size - x_size); j += get_local_size(0)){
+    int my_y_row = my_y - 1 - (j / (pad_size - x_size));
+    int my_x = x_size + j % (pad_size - x_size);
+    matrix[my_y_row * pad_size + my_x] = 0.0f;
+  }
+}*/
+
+/*__kernel void unpadding( __global float *matrix,
+    int x_size,
+    int pad_size,
+    int y_size,
+    int rows,
+    __local float *shm,
+    volatile __global unsigned int *flags)
+{
+  // Dynamic allocation of runtime workgroup id
+  __local int gid_;
+  if (get_local_id(0) == 0) gid_ = atom_add(&flags[y_size], rows);
+  barrier(CLK_LOCAL_MEM_FENCE);
+  const int my_y = gid_;
+
+  // Declare on-chip memory
+  float reg[REGS];
+  int i = 0;
+  // Load in on-chip memory
+  // rows rows to registers
+  #pragma unroll
+  for (int j = get_local_id(0); j < pad_size * rows && j < (y_size - my_y) * pad_size; j += get_local_size(0), i++){
+    reg[i] = matrix[my_y * pad_size + j];
+  }
+
+  barrier(CLK_LOCAL_MEM_FENCE);
+
+  // Set global synch
+  int r = my_y == 1 ? 1 : rows;
+#if ATOM
+  while (atom_or(&flags[my_y-r], 0) == 0){}
+  if (get_local_id(0) == 0) atom_or(&flags[my_y], 1);
+#else
+  while (flags[my_y-r] == 0){}
+   if (get_local_id(0) == 0) flags[my_y] = 1;
+#endif
+
+  int pos = my_y * pad_size + get_local_id(0);
+  // Store to global memory 
+  #pragma unroll
+  for (int j = 0; j < i; j++){
+    int my_y_row = pos / pad_size;
+    int my_x = pos % pad_size;
+    if (my_x < x_size) matrix[my_y_row * x_size + my_x] = reg[j];
+    pos += get_local_size(0);
+  }
+
+  // Zeros at the end
+  if (my_y + rows >= y_size)
+    for (int j = y_size * x_size + get_local_id(0); j < y_size * pad_size; j += get_local_size(0)){
+      matrix[j] = 0.0f;
+    }
+}*/
+
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+#undef REGS
 #define REGS 64
 #define ATOM 0
 #define C_REGS 1024

@@ -460,7 +460,7 @@ bool _cl_transpose_0100(cl_command_queue cl_queue,
 #endif
 #endif
 
-#define LOCALMEM_TILING 1
+#define LOCALMEM_TILING 0
 #if SP
 #if LOCALMEM_TILING
   err = kernel.setArg(5, b<192?(b*(WARPS*WARP_SIZE/v_warp_size)*sizeof(cl_float)):(b*sizeof(cl_float)), NULL);
@@ -624,11 +624,11 @@ extern "C" bool cl_transpose(cl_command_queue queue, cl_mem src, int A, int a,
       bool r2;
       if (b > 1){
         if (A*a*b <= MAX_MEM){
-          std::cerr << "010_BS\t";
+          std::cerr << "010_BS-";
           r2 = cl_transpose_010_bs(queue, src, B, A*a, b, &et);
         }
         else{
-          std::cerr << "010_PTTWAC\t";
+          std::cerr << "010_PTTWAC-";
           r2 = cl_transpose_010_pttwac(queue, src, B, A*a, b, &et, R, 1);
         }
         if (r2) {
@@ -854,25 +854,26 @@ extern "C" bool cl_padding(cl_command_queue cl_queue,
   MarshalProg *marshalprog = MarshalProgSingleton::Instance();
   marshalprog->Init(context());
 
+#define REGS 16
+  int ldim = NR_THREADS;
   // Atomic flags
-  cl_int *flags = (cl_int *)calloc(sizeof(cl_int), y_size + 1);
-  flags[0] = y_size;
-  flags[y_size] = 1;
+  const int num_flags = (y_size * pad_size) / (ldim * REGS);
+  cl_int *flags = (cl_int *)calloc(sizeof(cl_int), num_flags + 2);
+  flags[0] = 1;
+  flags[num_flags + 1] = 0;
   cl_int err;
   cl::Buffer d_flags = cl::Buffer(context, CL_MEM_READ_WRITE,
-      sizeof(cl_int)*(y_size + 1), NULL, &err);
+      sizeof(cl_int)*(num_flags + 2), NULL, &err);
   if (err != CL_SUCCESS)
     return true;
   err = queue.enqueueWriteBuffer(d_flags, CL_TRUE, 0,
-      sizeof(cl_int)*(y_size + 1), flags);
+      sizeof(cl_int)*(num_flags + 2), flags);
   free(flags);
   if (err != CL_SUCCESS)
     return true;
 
-#define REGS 64
   // Calculate rows per work-group
-  int ldim = NR_THREADS;
-  int C_REG_th = x_size / ldim;
+  /*int C_REG_th = x_size / ldim;
   C_REG_th = pow(2, (int)(log(C_REG_th)/log(2)));
   //printf("C_REG_th = %d\tC_REGS = %d\t", C_REG_th, C_REG_th*ldim);
   int rows, shm_size, i = 0;
@@ -889,9 +890,36 @@ extern "C" bool cl_padding(cl_command_queue cl_queue,
     num_wg = 32;
     rows = pow(2, (int)(log(y_size / num_wg + 1)/log(2)));
     //printf("num_wg = %d\trows = %d\t", num_wg, rows);
-  }
+  }*/
+  /*int shm_size, num_wg, rows;
+  if (x_size <= REGS * ldim){
+  rows;
+  do{
+    rows = (ldim * REGS) / x_size;
+    shm_size = 0;
+  }while(shm_size >= MAX_MEM);
+  //printf("rows = %d\t", rows);
+  //printf("shm_size = %d\t", shm_size);
 
-  cl::Kernel kernel(marshalprog->program, C_REG_th*ldim == 1024 ? "padding_1024" : C_REG_th*ldim == 2048 ? "padding_2048" : C_REG_th*ldim == 4096 ? "padding_4096" : C_REG_th*ldim == 8192 ? "padding_8192" : "padding_16384");
+  num_wg = (y_size + rows - 1) / rows;
+  //printf("num_wg = %d\t", num_wg);
+
+  if (num_wg < 26 && y_size >= 26){
+    num_wg = 26;
+    rows = (y_size + num_wg - 1) / num_wg;
+   //printf("num_wg = %d\trows = %d\t", num_wg, rows);
+  }
+  }
+  else{
+  shm_size = ldim;
+  num_wg = 1;
+  }*/
+  int num_wg = num_flags + 1;
+  int rows = 0, shm_size = 0;
+  //cl::Kernel kernel(marshalprog->program, C_REG_th*ldim == 1024 ? "padding_1024" : C_REG_th*ldim == 2048 ? "padding_2048" : C_REG_th*ldim == 4096 ? "padding_4096" : C_REG_th*ldim == 8192 ? "padding_8192" : "padding_16384");
+  //cl::Kernel kernel(marshalprog->program, x_size <= REGS * ldim ? "padding" : "padding_flex");
+  cl::Kernel kernel(marshalprog->program, "padding");
+  //cl::Kernel kernel(marshalprog->program, "padding_flex");
 
   if (CL_SUCCESS != kernel.setArg(0, buffer))
     return true;
@@ -900,11 +928,17 @@ extern "C" bool cl_padding(cl_command_queue cl_queue,
     return true;
   err = kernel.setArg(2, pad_size);
   err |= kernel.setArg(3, y_size);
-  err |= kernel.setArg(4, rows);
+  //if (x_size <= REGS * ldim)
+    err |= kernel.setArg(4, rows);
+  //else
+  //  err |= kernel.setArg(4, y_size-1);
   err |= kernel.setArg(5, shm_size*sizeof(cl_float), NULL);
   if (err != CL_SUCCESS)
     return true;
-  err = kernel.setArg(6, d_flags);
+  //if (x_size <= REGS * ldim)
+    err = kernel.setArg(6, d_flags);
+  //else
+  //  err = kernel.setArg(6, shm_size);
   if (err != CL_SUCCESS)
     return true;
 
@@ -936,25 +970,27 @@ extern "C" bool cl_unpadding(cl_command_queue cl_queue,
   MarshalProg *marshalprog = MarshalProgSingleton::Instance();
   marshalprog->Init(context());
 
+#undef REGS
+#define REGS 32
+  int ldim = NR_THREADS;
   // Atomic flags
-  cl_int *flags = (cl_int *)calloc(sizeof(cl_int), y_size + 1);
+  const int num_flags = (y_size * pad_size) / (ldim * REGS);
+  cl_int *flags = (cl_int *)calloc(sizeof(cl_int), num_flags + 2);
   flags[0] = 1;
-  flags[y_size] = 1;
+  flags[num_flags + 1] = 0;
   cl_int err;
   cl::Buffer d_flags = cl::Buffer(context, CL_MEM_READ_WRITE,
-      sizeof(cl_int)*(y_size + 1), NULL, &err);
+      sizeof(cl_int)*(num_flags + 2), NULL, &err);
   if (err != CL_SUCCESS)
     return true;
   err = queue.enqueueWriteBuffer(d_flags, CL_TRUE, 0,
-      sizeof(cl_int)*(y_size + 1), flags);
+      sizeof(cl_int)*(num_flags + 2), flags);
   free(flags);
   if (err != CL_SUCCESS)
     return true;
 
-#define REGS 64
   // Calculate rows per work-group
-  int ldim = NR_THREADS;
-  int C_REG_th = x_size / ldim;
+  /*int C_REG_th = x_size / ldim;
   C_REG_th = pow(2, (int)(log(C_REG_th)/log(2)));
   //printf("C_REG_th = %d\tC_REGS = %d\t", C_REG_th, C_REG_th*ldim);
   int rows, shm_size, i = 0;
@@ -971,9 +1007,28 @@ extern "C" bool cl_unpadding(cl_command_queue cl_queue,
     num_wg = 32;
     rows = pow(2, (int)(log(y_size / num_wg + 1)/log(2)));
     //printf("num_wg = %d\trows = %d\t", num_wg, rows);
-  }
+  }*/
+  /*int rows, shm_size;
+  do{
+    rows = (ldim * REGS) / pad_size;
+    shm_size = 0;
+  }while(shm_size >= MAX_MEM);
+  //printf("rows = %d\t", rows);
+  //printf("shm_size = %d\t", shm_size);
 
-  cl::Kernel kernel(marshalprog->program, C_REG_th*ldim == 1024 ? "unpadding_1024" : C_REG_th*ldim == 2048 ? "unpadding_2048" : C_REG_th*ldim == 4096 ? "unpadding_4096" : C_REG_th*ldim == 8192 ? "unpadding_8192" : "unpadding_16384");
+  int num_wg = (y_size + rows - 1) / rows;
+  //printf("num_wg = %d\t", num_wg);
+
+  if (num_wg < 26 && y_size >= 26){
+    num_wg = 26;
+    rows = (y_size + num_wg - 1) / num_wg;
+    //printf("num_wg = %d\trows = %d\t", num_wg, rows);
+  }*/
+
+  int num_wg = num_flags + 1;
+  int rows, shm_size = 0;
+  //cl::Kernel kernel(marshalprog->program, C_REG_th*ldim == 1024 ? "unpadding_1024" : C_REG_th*ldim == 2048 ? "unpadding_2048" : C_REG_th*ldim == 4096 ? "unpadding_4096" : C_REG_th*ldim == 8192 ? "unpadding_8192" : "unpadding_16384");
+  cl::Kernel kernel(marshalprog->program, "unpadding");
 
   if (CL_SUCCESS != kernel.setArg(0, buffer))
     return true;

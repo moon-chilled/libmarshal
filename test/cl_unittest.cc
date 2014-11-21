@@ -195,7 +195,7 @@ TEST_F(libmarshal_cl_test, bug537) {
   }
 }
 
-#define CHECK_RESULTS 1 
+#define CHECK_RESULTS 0 
 #define NVIDIA 1
 #define SP 1 // SP = 1 -> Single Precision; SP = 0 -> Double Precision 
 
@@ -339,6 +339,9 @@ TEST_F(libmarshal_cl_test, full) {
   // Single precision
   const int h_max = 20000; const int h_min = 1000;
   const int w_max = 20000; const int w_min = 1000;
+  // For skinny matrices (AoS-SoA)
+  //const int w_max = 1e7; const int w_min = 10000;
+  //const int h_max = 32; const int h_min = 2;
 #else
   // Double precision
   const int h_max = 10000; const int h_min = 1000;
@@ -348,14 +351,14 @@ TEST_F(libmarshal_cl_test, full) {
   //const int w_max = 32; const int w_min = 2;
 #endif
 
-  for (int n = 0; n < 20; n++){
+  for (int n = 1000; n < 5000; n++){
   // Generate random dimensions
   srand(n+1);
   int h = rand() % (h_max-h_min) + h_min;
   int w = rand() % (w_max-w_min) + w_min;
 #else 
-  int ws[] = {1800, 2500, 3200, 3900, 5100, 7200}; // Matrix sizes in PPoPP2014 paper
-  int hs[] = {7200, 5100, 4000, 3300, 2500, 1800};
+  int ws[] = {18001, 25001, 32001, 3900001, 51001, 720001}; // Matrix sizes in PPoPP2014 paper
+  int hs[] = {22, 5, 4, 3, 25, 18};
   for (int n = 0; n < 6; n++) {
   int w = ws[n];
   int h = hs[n];
@@ -378,14 +381,14 @@ TEST_F(libmarshal_cl_test, full) {
     //std::cerr << "" << hoptions.size() << "," << woptions.size() << "\t";
 
     // Pad h
-    if (hoptions.size() < 5){
+    if (hoptions.size() < 7){
       pad_h++;
       h++;
     }
     else done_h = true;
 
     // Pad w
-    if (woptions.size() < 5){
+    if (woptions.size() < 7){
       pad_w++;
       w++;
     }
@@ -447,8 +450,8 @@ TEST_F(libmarshal_cl_test, full) {
   cl_ulong et2 = 0;
   cl_ulong et3 = 0;
   // Change N to something > 1 to compute average performance (and use some WARM_UP runs).
-  const int N = 1; 
-  const int WARM_UP = 0;
+  const int N = 4; 
+  const int WARM_UP = 2;
 
 //if(a <= 1536 && b <= 1536){
     //if((a >= 6 && a*B*b <= MAX_MEM) || b < 3 && ((a >= b && ((a*B*b+31)/32) + ((((a*B*b+31)/32)>>5)*1) <= MAX_MEM) || (A > b && ((A*B*b+31)/32) + ((((A*B*b+31)/32)>>5)*1) <= MAX_MEM))){
