@@ -331,7 +331,7 @@ __kernel void transpose_100(__global float *input,
 //  get_local_size(0) == wavefront size;
 //  get_local_size(1) == number of warps
 #define P_IPT 0
-#define LOCALMEM_TILING 0 // 1 - Local memory tiling; 0 - Register tiling
+#define LOCALMEM_TILING 1 // 1 - Local memory tiling; 0 - Register tiling
 #if LOCALMEM_TILING
 void _transpose_100(__global float *input,
     int A, int B, int b, __global int *finished, volatile __local float *data,

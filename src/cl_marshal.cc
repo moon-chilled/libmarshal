@@ -460,7 +460,7 @@ bool _cl_transpose_0100(cl_command_queue cl_queue,
 #endif
 #endif
 
-#define LOCALMEM_TILING 0
+#define LOCALMEM_TILING 1
 #if SP
 #if LOCALMEM_TILING
   err = kernel.setArg(5, b<192?(b*(WARPS*WARP_SIZE/v_warp_size)*sizeof(cl_float)):(b*sizeof(cl_float)), NULL);

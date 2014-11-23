@@ -351,7 +351,7 @@ TEST_F(libmarshal_cl_test, full) {
   //const int w_max = 32; const int w_min = 2;
 #endif
 
-  for (int n = 1000; n < 5000; n++){
+  for (int n = 500; n < 5000; n++){
   // Generate random dimensions
   srand(n+1);
   int h = rand() % (h_max-h_min) + h_min;
@@ -371,41 +371,99 @@ TEST_F(libmarshal_cl_test, full) {
   int pad_h = 0; int pad_w = 0;
   bool done_h = false; bool done_w = false;
   //printf("%d %d %s %s\n", pad_h, pad_w, done_h ? "true" : "false", done_w ? "true" : "false");
+#if SP
+  int min_limit = 24; //8; //24; //32; //24;
+  int max_limit = 110; //128;//320;//110;
+#else
+  int min_limit = 48;
+  int max_limit = 1520;
+#endif
+  //int aa, bb;
+  int aa = MAX_MEM;
+  int bb = MAX_MEM;
   do{
     // Factorize dimensions
     Factorize hf(h), wf(w);
+
     hf.tiling_options();
     wf.tiling_options();
     hoptions = hf.get_tile_sizes();
     woptions = wf.get_tile_sizes();
     //std::cerr << "" << hoptions.size() << "," << woptions.size() << "\t";
 
+    // Sort factors
+    //for(int x=0; x<hoptions.size(); x++) printf("%d ", hoptions[x]);
+    //printf("\n");
+    size_t hf_sorted2[hoptions.size()];
+    size_t wf_sorted2[woptions.size()];
+    gsl_sort_int_index((size_t *)hf_sorted2, &hoptions[0], 1, hoptions.size());
+    //for(int x=0; x<hoptions.size(); x++) printf("%d ", hoptions[hf_sorted[x]]);
+    //printf("\n");
+    gsl_sort_int_index((size_t *)wf_sorted2, &woptions[0], 1, woptions.size());
+    //for(int x=0; x<woptions.size(); x++) printf("%d ", woptions[wf_sorted[x]]);
+    //printf("\n");
+
+    // Desired minimum and maximum for a and b
+    if (!done_h)
+      //for (int j = 0; j < hoptions.size(); j++)
+      for (int j = hoptions.size() - 1; j >= 0; j--)
+        if (hoptions[hf_sorted2[j]] >= min_limit && hoptions[hf_sorted2[j]] <= max_limit){
+          aa = hoptions[hf_sorted2[j]];
+          done_h = true;
+          break;
+        }
+
+    if (!done_w)
+      //for (int j = 0; j < woptions.size(); j++)
+      for (int j = woptions.size() - 1; j >= 0; j--)
+        if (woptions[wf_sorted2[j]] >= min_limit && woptions[wf_sorted2[j]] <= max_limit){
+        //if (woptions[wf_sorted2[j]] >= min_limit && woptions[wf_sorted2[j]] * aa <= MAX_MEM){
+          bb = woptions[wf_sorted2[j]];
+          done_w = true;
+          break;
+        }
+
+    if (!done_h){
+      pad_h++;
+      h++;
+    }
+    if (!done_w){
+      pad_w++;
+      w++;
+    }
+#if 0
     // Pad h
-    if (hoptions.size() < 7){
+    if (hoptions.size() < 9){
       pad_h++;
       h++;
     }
     else done_h = true;
 
     // Pad w
-    if (woptions.size() < 7){
+    if (woptions.size() < 9){
       pad_w++;
       w++;
     }
     else done_w = true;
-
+#endif
   }while(!done_h || !done_w);
 
   std::cerr << "" << hoptions.size() << "," << woptions.size() << "\t";
   std::cerr << "percent_pad " << ((float)((w-(w-pad_w))*100)/(float)(w-pad_w)) << "%\t";
   std::cerr << "percent_unpad " << ((float)((h-(h-pad_h))*100)/(float)(h-pad_h)) << "%\t";
 
+  std::cerr << "pad_h = " << pad_h << ", pad_w = " << pad_w << ",";
+  std::cerr << " h + pad_h = " << h << ", w + pad_w = " << w << ",";
+  //std::cerr << "" << h/aa << "," << aa << ",";
+  //std::cerr << "" << w/bb << "," << bb <<",\n";
+//continue;
+
   float *src = (float*)malloc(sizeof(float)*h*w);
   float *dst = (float*)malloc(sizeof(float)*h*w);
   float *dst_gpu = (float*)malloc(sizeof(float)*h*w);
   generate_vector(src, (h - pad_h) * (w - pad_w));
 
-#if 1
+#if 0
   // Sort factors
   //for(int x=0; x<hoptions.size(); x++) printf("%d ", hoptions[x]);
   //printf("\n");
@@ -430,9 +488,11 @@ TEST_F(libmarshal_cl_test, full) {
 #else
   // Heuristic for determining tile dimensions
   int A, a, B, b;
-  Heuristic(&A, &a, &B, &b, hf_sorted, wf_sorted, hoptions, woptions, h, w);
+//  Heuristic(&A, &a, &B, &b, hf_sorted, wf_sorted, hoptions, woptions, h, w);
   //std::cerr << "" << A << "," << a << ",";
   //std::cerr << "" << B << "," << b <<",";
+A=h/aa; a=aa;
+B=w/bb; b=bb;
 #endif
 
   cl_int err;
@@ -461,7 +521,7 @@ TEST_F(libmarshal_cl_test, full) {
         A = a;
         a = temp;
       }*/
-      Heuristic33(&A, &a, &B, &b, hf_sorted, wf_sorted, hoptions, woptions, h, w);
+//      Heuristic33(&A, &a, &B, &b, hf_sorted, wf_sorted, hoptions, woptions, h, w);
 
       std::cerr << "" << A << "," << a << ",";
       std::cerr << "" << B*b << ",";
@@ -522,7 +582,7 @@ TEST_F(libmarshal_cl_test, full) {
         B = b;
         b = temp;
       }*/
-      Heuristic33(&B, &b, &A, &a, wf_sorted, hf_sorted, woptions, hoptions, w, h);
+//      Heuristic33(&B, &b, &A, &a, wf_sorted, hf_sorted, woptions, hoptions, w, h);
 
       std::cerr << "" << A*a << ",";
       std::cerr << "" << B << "," << b << ",";
