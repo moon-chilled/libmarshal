@@ -195,7 +195,7 @@ TEST_F(libmarshal_cl_test, bug537) {
   }
 }
 
-#define CHECK_RESULTS 0 
+#define CHECK_RESULTS 1 
 #define NVIDIA 1
 #define SP 1 // SP = 1 -> Single Precision; SP = 0 -> Double Precision 
 
@@ -337,11 +337,11 @@ TEST_F(libmarshal_cl_test, full) {
   // For general matrices
 #if SP
   // Single precision
-  const int h_max = 20000; const int h_min = 1000;
-  const int w_max = 20000; const int w_min = 1000;
+  //const int h_max = 20000; const int h_min = 1000;
+  //const int w_max = 20000; const int w_min = 1000;
   // For skinny matrices (AoS-SoA)
-  //const int w_max = 1e7; const int w_min = 10000;
-  //const int h_max = 32; const int h_min = 2;
+  const int w_max = 1e7; const int w_min = 10000;
+  const int h_max = 32; const int h_min = 2;
 #else
   // Double precision
   const int h_max = 10000; const int h_min = 1000;
@@ -351,7 +351,7 @@ TEST_F(libmarshal_cl_test, full) {
   //const int w_max = 32; const int w_min = 2;
 #endif
 
-  for (int n = 500; n < 5000; n++){
+  for (int n = 0; n < 20; n++){
   // Generate random dimensions
   srand(n+1);
   int h = rand() % (h_max-h_min) + h_min;
@@ -371,6 +371,7 @@ TEST_F(libmarshal_cl_test, full) {
   int pad_h = 0; int pad_w = 0;
   bool done_h = false; bool done_w = false;
   //printf("%d %d %s %s\n", pad_h, pad_w, done_h ? "true" : "false", done_w ? "true" : "false");
+#if 1
 #if SP
   int min_limit = 24; //8; //24; //32; //24;
   int max_limit = 110; //128;//320;//110;
@@ -381,6 +382,7 @@ TEST_F(libmarshal_cl_test, full) {
   //int aa, bb;
   int aa = MAX_MEM;
   int bb = MAX_MEM;
+#endif
   do{
     // Factorize dimensions
     Factorize hf(h), wf(w);
@@ -390,7 +392,7 @@ TEST_F(libmarshal_cl_test, full) {
     hoptions = hf.get_tile_sizes();
     woptions = wf.get_tile_sizes();
     //std::cerr << "" << hoptions.size() << "," << woptions.size() << "\t";
-
+#if 1
     // Sort factors
     //for(int x=0; x<hoptions.size(); x++) printf("%d ", hoptions[x]);
     //printf("\n");
@@ -403,8 +405,13 @@ TEST_F(libmarshal_cl_test, full) {
     //for(int x=0; x<woptions.size(); x++) printf("%d ", woptions[wf_sorted[x]]);
     //printf("\n");
 
+#define SoA 1
     // Desired minimum and maximum for a and b
     if (!done_h)
+#if SoA
+      {done_h = true;
+      aa = h;}
+#else
       //for (int j = 0; j < hoptions.size(); j++)
       for (int j = hoptions.size() - 1; j >= 0; j--)
         if (hoptions[hf_sorted2[j]] >= min_limit && hoptions[hf_sorted2[j]] <= max_limit){
@@ -412,6 +419,7 @@ TEST_F(libmarshal_cl_test, full) {
           done_h = true;
           break;
         }
+#endif
 
     if (!done_w)
       //for (int j = 0; j < woptions.size(); j++)
@@ -431,16 +439,16 @@ TEST_F(libmarshal_cl_test, full) {
       pad_w++;
       w++;
     }
-#if 0
+#else
     // Pad h
-    if (hoptions.size() < 9){
+    if (hoptions.size() < 1){ //5, 7, 9
       pad_h++;
       h++;
     }
     else done_h = true;
 
     // Pad w
-    if (woptions.size() < 9){
+    if (woptions.size() < 1){ //5, 7, 9
       pad_w++;
       w++;
     }
@@ -488,11 +496,14 @@ TEST_F(libmarshal_cl_test, full) {
 #else
   // Heuristic for determining tile dimensions
   int A, a, B, b;
-//  Heuristic(&A, &a, &B, &b, hf_sorted, wf_sorted, hoptions, woptions, h, w);
+#if 0
+  Heuristic(&A, &a, &B, &b, hf_sorted, wf_sorted, hoptions, woptions, h, w);
   //std::cerr << "" << A << "," << a << ",";
   //std::cerr << "" << B << "," << b <<",";
+#else
 A=h/aa; a=aa;
 B=w/bb; b=bb;
+#endif
 #endif
 
   cl_int err;
@@ -510,19 +521,21 @@ B=w/bb; b=bb;
   cl_ulong et2 = 0;
   cl_ulong et3 = 0;
   // Change N to something > 1 to compute average performance (and use some WARM_UP runs).
-  const int N = 4; 
-  const int WARM_UP = 2;
+  const int N = 1; 
+  const int WARM_UP = 0;
 
 //if(a <= 1536 && b <= 1536){
-    //if((a >= 6 && a*B*b <= MAX_MEM) || b < 3 && ((a >= b && ((a*B*b+31)/32) + ((((a*B*b+31)/32)>>5)*1) <= MAX_MEM) || (A > b && ((A*B*b+31)/32) + ((((A*B*b+31)/32)>>5)*1) <= MAX_MEM))){
-    if(a >= 6 && a*B*b <= MAX_MEM){
+#if 0
+    if((a >= 6 && a*B*b <= MAX_MEM) || b < 3 && ((a >= b && ((a*B*b+31)/32) + ((((a*B*b+31)/32)>>5)*1) <= MAX_MEM) || (A > b && ((A*B*b+31)/32) + ((((A*B*b+31)/32)>>5)*1) <= MAX_MEM))){
       /*if (b < 3 && ((a*B*b+31)/32) + ((((a*B*b+31)/32)>>5)*1) > MAX_MEM){
         int temp = A;
         A = a;
         a = temp;
       }*/
-//      Heuristic33(&A, &a, &B, &b, hf_sorted, wf_sorted, hoptions, woptions, h, w);
-
+      Heuristic33(&A, &a, &B, &b, hf_sorted, wf_sorted, hoptions, woptions, h, w);
+#else
+    if(a >= 6 && a*B*b <= MAX_MEM){
+#endif
       std::cerr << "" << A << "," << a << ",";
       std::cerr << "" << B*b << ",";
 
@@ -575,15 +588,17 @@ B=w/bb; b=bb;
 #endif
       }
     }
-    //else if((b >= 6 && b*A*a <= MAX_MEM) || a < 3 && (b >= a && (((b*A*a+31)/32) + ((((b*A*a+31)/32)>>5)*1) <= MAX_MEM) || (B > a && ((B*A*a+31)/32) + ((((B*A*a+31)/32)>>5)*1) <= MAX_MEM))){
-    else if(b >= 6 && b*A*a <= MAX_MEM){
+#if 0
+    else if((b >= 6 && b*A*a <= MAX_MEM) || a < 3 && (b >= a && (((b*A*a+31)/32) + ((((b*A*a+31)/32)>>5)*1) <= MAX_MEM) || (B > a && ((B*A*a+31)/32) + ((((B*A*a+31)/32)>>5)*1) <= MAX_MEM))){
       /*if (a < 3 && ((b*A*a+31)/32) + ((((b*A*a+31)/32)>>5)*1) > MAX_MEM){
         int temp = B;
         B = b;
         b = temp;
       }*/
-//      Heuristic33(&B, &b, &A, &a, wf_sorted, hf_sorted, woptions, hoptions, w, h);
-
+      Heuristic33(&B, &b, &A, &a, wf_sorted, hf_sorted, woptions, hoptions, w, h);
+#else
+    else if(b >= 6 && b*A*a <= MAX_MEM){
+#endif
       std::cerr << "" << A*a << ",";
       std::cerr << "" << B << "," << b << ",";
 
