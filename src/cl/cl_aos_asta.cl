@@ -331,7 +331,7 @@ __kernel void transpose_100(__global float *input,
 //  get_local_size(0) == wavefront size;
 //  get_local_size(1) == number of warps
 #define P_IPT 0
-#define LOCALMEM_TILING 1 // 1 - Local memory tiling; 0 - Register tiling
+#define LOCALMEM_TILING 0 // 1 - Local memory tiling; 0 - Register tiling
 #if LOCALMEM_TILING
 void _transpose_100(__global float *input,
     int A, int B, int b, __global int *finished, volatile __local float *data,
@@ -757,7 +757,7 @@ __kernel void transpose_0100_b(__global float *input,
 #undef LOCALMEM_TILING
 
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-#define REGS 16
+#define REGS 24
 #define ATOM 0
 __kernel void padding( __global float *matrix,
     int x_size,
@@ -768,6 +768,7 @@ __kernel void padding( __global float *matrix,
     volatile __global unsigned int *flags)
 {
   const int matrix_size = y_size * pad_size;
+  const int matrix_size_align = (matrix_size + get_local_size(0) - 1) / get_local_size(0) * get_local_size(0);
   const int num_flags = matrix_size / (get_local_size(0) * REGS);
   // Dynamic allocation of runtime workgroup id
   __local int gid_;
@@ -777,7 +778,8 @@ __kernel void padding( __global float *matrix,
 
   // Declare on-chip memory
   float reg[REGS];
-  int pos = matrix_size - 1 - (my_s * REGS * get_local_size(0) + get_local_id(0));
+  //int pos = matrix_size - 1 - (my_s * REGS * get_local_size(0) + get_local_id(0));
+  int pos = matrix_size_align - 1 - (my_s * REGS * get_local_size(0) + get_local_id(0));
   int my_s_row = pos / pad_size;
   int my_x = pos % pad_size;
   int pos2 = my_s_row * x_size + my_x;
@@ -785,6 +787,7 @@ __kernel void padding( __global float *matrix,
   #pragma unroll
   for (int j = 0; j < REGS; j++){
     if (pos2 >= 0 && my_x < x_size) reg[j] = matrix[pos2];
+    //if (pos2 >= 0 && my_x < x_size && pos2 < matrix_size) reg[j] = matrix[pos2];
     else reg[j] = 0;
     pos -= get_local_size(0);
     my_s_row = pos / pad_size;
@@ -803,11 +806,13 @@ __kernel void padding( __global float *matrix,
   if (get_local_id(0) == 0) flags[my_s + 1] = 1;
 #endif
 
-  pos = matrix_size - 1 - (my_s * REGS * get_local_size(0) + get_local_id(0));
+  //pos = matrix_size - 1 - (my_s * REGS * get_local_size(0) + get_local_id(0));
+  pos = matrix_size_align - 1 - (my_s * REGS * get_local_size(0) + get_local_id(0));
   // Store to global memory 
   #pragma unroll
   for (int j = 0; j < REGS; j++){
-    if (pos >= 0) matrix[pos] = reg[j];
+    //if (pos >= 0) matrix[pos] = reg[j];
+    if (pos >= 0 && pos < matrix_size) matrix[pos] = reg[j];
     pos -= get_local_size(0);
   }
 }

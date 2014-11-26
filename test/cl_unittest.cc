@@ -332,16 +332,26 @@ void tile(int x) {
 
 TEST_F(libmarshal_cl_test, full) {
 #define RANDOM 1
+#define SoA 0
+#define AoS 0
 #if RANDOM
   // Matrix sizes
   // For general matrices
 #if SP
   // Single precision
-  //const int h_max = 20000; const int h_min = 1000;
-  //const int w_max = 20000; const int w_min = 1000;
-  // For skinny matrices (AoS-SoA)
+#if SoA
+  // For skinny matrices (SoA-AoS)
   const int w_max = 1e7; const int w_min = 10000;
   const int h_max = 32; const int h_min = 2;
+  // For skinny matrices (AoS-SoA)
+#elif AoS
+  const int h_max = 1e7; const int h_min = 10000;
+  const int w_max = 32; const int w_min = 2;
+#else
+  // General matrices
+  const int h_max = 20000; const int h_min = 1000;
+  const int w_max = 20000; const int w_min = 1000;
+#endif
 #else
   // Double precision
   const int h_max = 10000; const int h_min = 1000;
@@ -351,7 +361,7 @@ TEST_F(libmarshal_cl_test, full) {
   //const int w_max = 32; const int w_min = 2;
 #endif
 
-  for (int n = 0; n < 20; n++){
+  for (int n = 0; n < 50; n++){
   // Generate random dimensions
   srand(n+1);
   int h = rand() % (h_max-h_min) + h_min;
@@ -374,7 +384,12 @@ TEST_F(libmarshal_cl_test, full) {
 #if 1
 #if SP
   int min_limit = 24; //8; //24; //32; //24;
+  //int min_limit = 32; //8; //24; //32; //24;
+#if SoA || AoS
+  int max_limit = 380; //128;//320;//110;
+#else
   int max_limit = 110; //128;//320;//110;
+#endif
 #else
   int min_limit = 48;
   int max_limit = 1520;
@@ -405,7 +420,6 @@ TEST_F(libmarshal_cl_test, full) {
     //for(int x=0; x<woptions.size(); x++) printf("%d ", woptions[wf_sorted[x]]);
     //printf("\n");
 
-#define SoA 1
     // Desired minimum and maximum for a and b
     if (!done_h)
 #if SoA
@@ -422,6 +436,10 @@ TEST_F(libmarshal_cl_test, full) {
 #endif
 
     if (!done_w)
+#if AoS
+      {done_w = true;
+      bb = w;}
+#else
       //for (int j = 0; j < woptions.size(); j++)
       for (int j = woptions.size() - 1; j >= 0; j--)
         if (woptions[wf_sorted2[j]] >= min_limit && woptions[wf_sorted2[j]] <= max_limit){
@@ -430,6 +448,7 @@ TEST_F(libmarshal_cl_test, full) {
           done_w = true;
           break;
         }
+#endif
 
     if (!done_h){
       pad_h++;
@@ -521,8 +540,8 @@ B=w/bb; b=bb;
   cl_ulong et2 = 0;
   cl_ulong et3 = 0;
   // Change N to something > 1 to compute average performance (and use some WARM_UP runs).
-  const int N = 1; 
-  const int WARM_UP = 0;
+  const int N = 4; 
+  const int WARM_UP = 2;
 
 //if(a <= 1536 && b <= 1536){
 #if 0
