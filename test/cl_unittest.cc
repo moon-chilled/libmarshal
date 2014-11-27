@@ -39,8 +39,8 @@ void libmarshal_cl_test::SetUp(void) {
     std::cerr << "Platform size 0\n";
     return;
   }
-  int i = 0;
-  //int i = 1;
+  //int i = 0;
+  int i = 1;
   for (; i < platforms.size(); i++) {
     std::vector<cl::Device> devices;
     platforms[i].getDevices(CL_DEVICE_TYPE_GPU, &devices);
@@ -196,7 +196,7 @@ TEST_F(libmarshal_cl_test, bug537) {
 }
 
 #define CHECK_RESULTS 1 
-#define NVIDIA 1
+#define NVIDIA 0
 #define SP 1 // SP = 1 -> Single Precision; SP = 0 -> Double Precision 
 
 #if NVIDIA
@@ -361,7 +361,7 @@ TEST_F(libmarshal_cl_test, full) {
   //const int w_max = 32; const int w_min = 2;
 #endif
 
-  for (int n = 0; n < 50; n++){
+  for (int n = 0; n < 5000; n++){
   // Generate random dimensions
   srand(n+1);
   int h = rand() % (h_max-h_min) + h_min;
@@ -386,13 +386,13 @@ TEST_F(libmarshal_cl_test, full) {
   int min_limit = 24; //8; //24; //32; //24;
   //int min_limit = 32; //8; //24; //32; //24;
 #if SoA || AoS
-  int max_limit = 380; //128;//320;//110;
+  int max_limit = MAX_MEM / min_limit; //380; //128;//320;//110;
 #else
-  int max_limit = 110; //128;//320;//110;
+  int max_limit = (int)sqrt(MAX_MEM); //128;//320;//110;
 #endif
 #else
-  int min_limit = 48;
-  int max_limit = 1520;
+  int min_limit = 24;
+  int max_limit = (int)sqrt(MAX_MEM);
 #endif
   //int aa, bb;
   int aa = MAX_MEM;
