@@ -24,6 +24,9 @@
 #pragma OPENCL EXTENSION cl_khr_global_int32_extended_atomics : enable
 #pragma OPENCL EXTENSION cl_khr_fp64 : enable
 
+#define T float
+#define SP 1
+
 #define NVIDIA 0
 #if NVIDIA
 #define WARP_SIZE 32
@@ -32,7 +35,7 @@
 #endif
 
 // mymemset kernel
-__kernel void mymemset (__global float *input) {
+__kernel void mymemset (__global T *input) {
   input[get_global_id(0)] = 0.0f;
 }
 
@@ -41,8 +44,8 @@ __kernel void mymemset (__global float *input) {
 // convert a[height/tile_size][tile_size][width] to
 // a[height/tile_size][width][tile_size]
 // Launch height/tile_size blocks of tile_size*width threads
-__kernel void BS_marshal (__global float *input, int tile_size, int width,
-  __local float *store, int warp_size, int A) {
+__kernel void BS_marshal (__global T *input, int tile_size, int width,
+  __local T *store, int warp_size, int A) {
   int tidx = get_local_id(0);
   int m = width*tile_size-1;
   int bid = get_group_id(0);
@@ -75,8 +78,8 @@ __kernel void BS_marshal (__global float *input, int tile_size, int width,
 }
 
 // Version with virtual-SIMD-units
-__kernel void BS_marshal_vw (__global float *input, int tile_size, int width,
-  volatile __local float *store, int warp_size, int A) {
+__kernel void BS_marshal_vw (__global T *input, int tile_size, int width,
+  volatile __local T *store, int warp_size, int A) {
   int m = width*tile_size-1;
   int group_id, tidx, warp_id, warps_group;
   // Recalculate IDs if virtual warp is used
@@ -154,8 +157,8 @@ __kernel void BS_marshal_vw (__global float *input, int tile_size, int width,
 
 // Optimized version for tile size == power of 2
 // Padding shared memory is necessary to reduce conflicts
-__kernel void BS_marshal_power2 (__global float *input, int lg2_tile_size, int width,
-  __local float *store, int warp_size, int A) {
+__kernel void BS_marshal_power2 (__global T *input, int lg2_tile_size, int width,
+  __local T *store, int warp_size, int A) {
 #define SHMT lg2_tile_size 
 #define PAD(x) ((x)+((x)>>SHMT))
   int tidx = get_local_id(0);
@@ -191,7 +194,7 @@ __kernel void BS_marshal_power2 (__global float *input, int lg2_tile_size, int w
 
 // Converts input[A][a][B] to input[A][B][a]
 // Launch A blocks of NR_THREADS threads
-__kernel void transpose_010_PTTWAC(__global float *input, int A, 
+__kernel void transpose_010_PTTWAC(__global T *input, int A, 
   int a, int B, __local uint *finished, int R, int SHFT, int P) {
   int tidx = get_local_id(0);
   int m = a*B - 1;
@@ -218,17 +221,17 @@ __kernel void transpose_010_PTTWAC(__global float *input, int A,
       ;
     if (next !=tidx)
       continue;
-    float data = input[tidx];
+    T data = input[tidx];
     for (next = (tidx * a)-m*(tidx/B);next > tidx;
         next = (next * a)-m*(next/B)) {
-      float backup = input[next];
+      T backup = input[next];
       input[next] = data;
       data = backup;
     }
     input[tidx] = data;
 #else // P_IPT
     if (next != tidx) {
-      float data1 = input[tidx];
+      T data1 = input[tidx];
 
       //// mask and flag_id////
 #if PTTWAC_REMAP
@@ -244,7 +247,7 @@ __kernel void transpose_010_PTTWAC(__global float *input, int A,
       done = (done & mask);
 
       for (; done == 0; next = (next * a) - m*(next/B)) {
-        float data2 = input[next];
+        T data2 = input[next];
 #if PTTWAC_REMAP
         mask = 1 << (next / sh_sz);
         flag_id = next%sh_sz;
@@ -331,13 +334,17 @@ __kernel void transpose_100(__global float *input,
 //  get_local_size(0) == wavefront size;
 //  get_local_size(1) == number of warps
 #define P_IPT 0
-#define LOCALMEM_TILING 1 // 1 - Local memory tiling; 0 - Register tiling
-#if LOCALMEM_TILING
-void _transpose_100(__global float *input,
-    int A, int B, int b, __global int *finished, volatile __local float *data,
-    volatile __local float *backup, volatile __local int *done, const int warp_size) {
+#if NVIDIA
+#define LOCALMEM_TILING 0 // 1 - Local memory tiling; 0 - Register tiling
 #else
-void _transpose_100(__global float *input,
+#define LOCALMEM_TILING 1 // For now, AMD uses local memory 
+#endif
+#if LOCALMEM_TILING
+void _transpose_100(__global T *input,
+    int A, int B, int b, __global int *finished, volatile __local T *data,
+    volatile __local T *backup, volatile __local int *done, const int warp_size) {
+#else
+void _transpose_100(__global T *input,
     int A, int B, int b, __global int *finished, volatile __local int *done, const int warp_size) {
 #endif
   int m = A*B-1;
@@ -436,19 +443,22 @@ void _transpose_100(__global float *input,
       data[warp_id*b+i] = input[gid*b+i];
     }
 #else
-    float data1, data2, data3, data4, data5, data6;
+    T data1, data2, data3;
     int i = tid;
     if(i < b) data1 = input[gid*b+i];
     i += warp_size;
     if(i < b) data2 = input[gid*b+i];
     i += warp_size;
     if(i < b) data3 = input[gid*b+i];
+#if SP
+    T data4, data5, data6;
     i += warp_size;
     if(i < b) data4 = input[gid*b+i];
     i += warp_size;
     if(i < b) data5 = input[gid*b+i];
     i += warp_size;
     if(i < b) data6 = input[gid*b+i];
+#endif
 #endif
     if (tid == 0){
       //make sure the read is not cached 
@@ -467,19 +477,22 @@ void _transpose_100(__global float *input,
         backup[warp_id*b+i] = input[next_in_cycle*b+i];
       }
 #else
-      float backup1, backup2, backup3, backup4, backup5, backup6;
+      T backup1, backup2, backup3;
       i = tid;
       if(i < b) backup1 = input[next_in_cycle*b+i];
       i += warp_size;
       if(i < b) backup2 = input[next_in_cycle*b+i];
       i += warp_size;
       if(i < b) backup3 = input[next_in_cycle*b+i];
+#if SP
+      T backup4, backup5, backup6;
       i += warp_size;
       if(i < b) backup4 = input[next_in_cycle*b+i];
       i += warp_size;
       if(i < b) backup5 = input[next_in_cycle*b+i];
       i += warp_size;
       if(i < b) backup6 = input[next_in_cycle*b+i];
+#endif
 #endif
       if (tid == 0) {
         //done[warp_id] = atom_xchg(finished+next_in_cycle, (int)1);
@@ -501,12 +514,14 @@ void _transpose_100(__global float *input,
         if(i < b) input[next_in_cycle*b+i] = data2;
         i += warp_size;
         if(i < b) input[next_in_cycle*b+i] = data3;
+#if SP
         i += warp_size;
         if(i < b) input[next_in_cycle*b+i] = data4;
         i += warp_size;
         if(i < b) input[next_in_cycle*b+i] = data5;
         i += warp_size;
         if(i < b) input[next_in_cycle*b+i] = data6;
+#endif
 #endif
       }
 #if LOCALMEM_TILING
@@ -520,12 +535,14 @@ void _transpose_100(__global float *input,
       if(i < b) data2 = backup2;
       i += warp_size;
       if(i < b) data3 = backup3;
+#if SP
       i += warp_size;
       if(i < b) data4 = backup4;
       i += warp_size;
       if(i < b) data5 = backup5;
       i += warp_size;
       if(i < b) data6 = backup6;
+#endif
 #endif
     }
 #endif
@@ -535,11 +552,11 @@ void _transpose_100(__global float *input,
 //#define LOCALMEM_TILING 0
 // Block-centric version
 #if LOCALMEM_TILING
-void _transpose_100_b(__global float *input,
-    int A, int B, int b, __global int *finished, volatile __local float *data,
-    volatile __local float *backup, volatile __local int *done, const int warp_size) {
+void _transpose_100_b(__global T *input,
+    int A, int B, int b, __global int *finished, volatile __local T *data,
+    volatile __local T *backup, volatile __local int *done, const int warp_size) {
 #else
-void _transpose_100_b(__global float *input,
+void _transpose_100_b(__global T *input,
     int A, int B, int b, __global int *finished, volatile __local int *done, const int warp_size) {
 #endif
   int m = A*B-1;
@@ -570,19 +587,22 @@ void _transpose_100_b(__global float *input,
       data[i] = input[gid*b+i];
     }
 #else
-    float data1, data2, data3, data4, data5, data6;
+    T data1, data2, data3;
     int i = tid;
     if(i < b) data1 = input[gid*b+i];
     i += group_size;
     if(i < b) data2 = input[gid*b+i];
     i += group_size;
     if(i < b) data3 = input[gid*b+i];
+#if SP
+    T data4, data5, data6;
     i += group_size;
     if(i < b) data4 = input[gid*b+i];
     i += group_size;
     if(i < b) data5 = input[gid*b+i];
     i += group_size;
     if(i < b) data6 = input[gid*b+i];
+#endif
 #endif
     barrier(CLK_LOCAL_MEM_FENCE|CLK_GLOBAL_MEM_FENCE);
     if (tid == 0){
@@ -602,19 +622,22 @@ void _transpose_100_b(__global float *input,
         backup[i] = input[next_in_cycle*b+i];
       }
 #else
-      float backup1, backup2, backup3, backup4, backup5, backup6;
+      T backup1, backup2, backup3;
       i = tid;
       if(i < b) backup1 = input[next_in_cycle*b+i];
       i += group_size;
       if(i < b) backup2 = input[next_in_cycle*b+i];
       i += group_size;
       if(i < b) backup3 = input[next_in_cycle*b+i];
+#if SP
+      T backup4, backup5, backup6;
       i += group_size;
       if(i < b) backup4 = input[next_in_cycle*b+i];
       i += group_size;
       if(i < b) backup5 = input[next_in_cycle*b+i];
       i += group_size;
       if(i < b) backup6 = input[next_in_cycle*b+i];
+#endif
 #endif
       barrier(CLK_LOCAL_MEM_FENCE|CLK_GLOBAL_MEM_FENCE);
       if (tid == 0) {
@@ -638,12 +661,14 @@ void _transpose_100_b(__global float *input,
         if(i < b) input[next_in_cycle*b+i] = data2;
         i += group_size;
         if(i < b) input[next_in_cycle*b+i] = data3;
+#if SP
         i += group_size;
         if(i < b) input[next_in_cycle*b+i] = data4;
         i += group_size;
         if(i < b) input[next_in_cycle*b+i] = data5;
         i += group_size;
         if(i < b) input[next_in_cycle*b+i] = data6;
+#endif
 #endif
       }
 #if LOCALMEM_TILING
@@ -657,6 +682,7 @@ void _transpose_100_b(__global float *input,
       if(i < b) data2 = backup2;
       i += group_size;
       if(i < b) data3 = backup3;
+#if SP
       i += group_size;
       if(i < b) data4 = backup4;
       i += group_size;
@@ -664,15 +690,16 @@ void _transpose_100_b(__global float *input,
       i += group_size;
       if(i < b) data6 = backup6;
 #endif
+#endif
     }
   }
 }
 
 // Transformation 100 
 #if LOCALMEM_TILING
-__kernel void transpose_100(__global float *input,
-    int A, int B, int b, __global int *finished, volatile __local float *data,
-    volatile __local float *backup, int warp_size, volatile __local int *done) {
+__kernel void transpose_100(__global T *input,
+    int A, int B, int b, __global int *finished, volatile __local T *data,
+    volatile __local T *backup, int warp_size, volatile __local int *done) {
 #if P_IPT
     _transpose_100(input, A, B, b, finished, data, backup, 0, WARP_SIZE);
 #else
@@ -682,7 +709,7 @@ __kernel void transpose_100(__global float *input,
 }
 #else
 // With register tiling
-__kernel void transpose_100(__global float *input,
+__kernel void transpose_100(__global T *input,
     int A, int B, int b, __global int *finished, int warp_size, volatile __local int *done) {
     _transpose_100(input, A, B, b, finished, done, warp_size);
 }
@@ -690,9 +717,9 @@ __kernel void transpose_100(__global float *input,
 
 // Transformation 0100, or AaBb to ABab
 #if LOCALMEM_TILING
-__kernel void transpose_0100(__global float *input,
-    int A, int B, int b, __global int *finished, volatile __local float *data,
-    volatile __local float *backup, int warp_size, volatile __local int *done) {
+__kernel void transpose_0100(__global T *input,
+    int A, int B, int b, __global int *finished, volatile __local T *data,
+    volatile __local T *backup, int warp_size, volatile __local int *done) {
   // for supporting transformation 0100
   finished += get_group_id(2) * A * B;
   input += get_group_id(2) * A * B * b;
@@ -705,7 +732,7 @@ __kernel void transpose_0100(__global float *input,
 }
 #else
 // With register tiling
-__kernel void transpose_0100(__global float *input,
+__kernel void transpose_0100(__global T *input,
     int A, int B, int b, __global int *finished, int warp_size, volatile __local int *done) {
   // for supporting transformation 0100
   finished += get_group_id(2) * A * B;
@@ -718,15 +745,15 @@ __kernel void transpose_0100(__global float *input,
 
 // Transformation 100 - Block-centric with shared memory tiling
 #if LOCALMEM_TILING
-__kernel void transpose_100_b(__global float *input,
-    int A, int B, int b, __global int *finished, volatile __local float *data,
-    volatile __local float *backup, int warp_size, volatile __local int *done) {
+__kernel void transpose_100_b(__global T *input,
+    int A, int B, int b, __global int *finished, volatile __local T *data,
+    volatile __local T *backup, int warp_size, volatile __local int *done) {
     _transpose_100_b(input, A, B, b, finished, data, backup, done, warp_size);
 
 }
 #else
 // With register tiling
-__kernel void transpose_100_b(__global float *input,
+__kernel void transpose_100_b(__global T *input,
     int A, int B, int b, __global int *finished, int warp_size, volatile __local int *done) {
     _transpose_100_b(input, A, B, b, finished, done, warp_size);
 
@@ -735,9 +762,9 @@ __kernel void transpose_100_b(__global float *input,
 
 // Transformation 0100, or AaBb to ABab - Block-centric with shared memory tiling
 #if LOCALMEM_TILING
-__kernel void transpose_0100_b(__global float *input,
-    int A, int B, int b, __global int *finished, volatile __local float *data,
-    volatile __local float *backup, int warp_size, volatile __local int *done) {
+__kernel void transpose_0100_b(__global T *input,
+    int A, int B, int b, __global int *finished, volatile __local T *data,
+    volatile __local T *backup, int warp_size, volatile __local int *done) {
   // for supporting transformation 0100
   finished += get_group_id(2) * A * B;
   input += get_group_id(2) * A * B * b;
@@ -745,7 +772,7 @@ __kernel void transpose_0100_b(__global float *input,
 }
 #else
 // With register tiling
-__kernel void transpose_0100_b(__global float *input,
+__kernel void transpose_0100_b(__global T *input,
     int A, int B, int b, __global int *finished, int warp_size, volatile __local int *done) {
   // for supporting transformation 0100
   finished += get_group_id(2) * A * B;
@@ -758,13 +785,13 @@ __kernel void transpose_0100_b(__global float *input,
 
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 #if NVIDIA
-#define REGS 24
+#define REGS 16
 #define ATOM 0
 #else
 #define REGS 64
 #define ATOM 1
 #endif
-__kernel void padding( __global float *matrix,
+__kernel void padding( __global T *matrix,
     int x_size,
     int pad_size,
     int y_size,
@@ -781,7 +808,7 @@ __kernel void padding( __global float *matrix,
   int my_s = gid_;
 
   // Declare on-chip memory
-  float reg[REGS];
+  T reg[REGS];
   //int pos = matrix_size - 1 - (my_s * REGS * get_local_size(0) + get_local_id(0));
   int pos = matrix_size_align - 1 - (my_s * REGS * get_local_size(0) + get_local_id(0));
   int my_s_row = pos / pad_size;
@@ -834,7 +861,7 @@ __kernel void padding( __global float *matrix,
 #define REGS 64
 #define ATOM 1
 #endif
-__kernel void unpadding( __global float *matrix,
+__kernel void unpadding( __global T *matrix,
     int x_size,
     int pad_size,
     int y_size,
@@ -849,7 +876,7 @@ __kernel void unpadding( __global float *matrix,
   const int my_s = gid_;
 
   // Declare on-chip memory
-  float reg[REGS];
+  T reg[REGS];
   int pos = my_s * REGS * get_local_size(0) + get_local_id(0);
   // Load in on-chip memory
   #pragma unroll

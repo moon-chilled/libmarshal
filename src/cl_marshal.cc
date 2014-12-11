@@ -30,6 +30,8 @@
 #include <math.h>
 #include <stdio.h>
 
+#define T float
+
 #define NVIDIA 0
 // SP = 1 -> Single precision; SP = 0 -> Double precision
 #define SP 1
@@ -227,7 +229,7 @@ extern "C" bool cl_transpose_010_bs(cl_command_queue cl_queue,
 #if SP
   err = kernel.setArg(3, sh_sz<256?(warps*B*a)*sizeof(cl_float):(B*a*sizeof(cl_float)), NULL);
 #else
-  err = kernel.setArg(3, sh_sz<128?(warps*B*a)*sizeof(cl_float):(B*a*sizeof(cl_float)), NULL);
+  err = kernel.setArg(3, sh_sz<128?(warps*B*a)*sizeof(cl_double):(B*a*sizeof(cl_double)), NULL);
 #endif
   err |= kernel.setArg(4, warp_size);
   err |= kernel.setArg(5, A);
@@ -266,7 +268,7 @@ extern "C" bool cl_transpose_010_bs(cl_command_queue cl_queue,
   if (elapsed_time) {
     *elapsed_time += prof.Report();
   } else {
-    prof.Report(A*a*B*sizeof(float)*2);
+    prof.Report(A*a*B*sizeof(T)*2);
   }
 #endif
   return false;
@@ -325,7 +327,7 @@ extern "C" bool cl_transpose_010_pttwac(cl_command_queue cl_queue,
   if (elapsed_time) {
     *elapsed_time += prof.Report();
   } else {
-    prof.Report(A*a*B*sizeof(float)*2);
+    prof.Report(A*a*B*sizeof(T)*2);
   }
 #endif
   return false;
@@ -460,7 +462,11 @@ bool _cl_transpose_0100(cl_command_queue cl_queue,
 #endif
 #endif
 
-#define LOCALMEM_TILING 1
+#if NVIDIA
+#define LOCALMEM_TILING 0
+#else
+#define LOCALMEM_TILING 1 // For now, AMD uses local memory
+#endif
 #if SP
 #if LOCALMEM_TILING
   err = kernel.setArg(5, b<192?(b*(WARPS*WARP_SIZE/v_warp_size)*sizeof(cl_float)):(b*sizeof(cl_float)), NULL);
@@ -544,7 +550,7 @@ bool _cl_transpose_0100(cl_command_queue cl_queue,
   if (elapsed_time) {
     *elapsed_time += prof.Report();
   } else {
-    prof.Report(A*a*B*b*sizeof(float)*2);
+    prof.Report(A*a*B*b*sizeof(T)*2);
   }
 #endif
   return false;
@@ -779,7 +785,7 @@ extern "C" bool cl_transpose(cl_command_queue queue, cl_mem src, int A, int a,
 #ifdef LIBMARSHAL_OCL_PROFILE
       //std::cerr << "[cl_transpose] Karlsson's method; "<< 
       std::cerr<<
-        float(A*a*B*b*2*sizeof(float))/et << "\n";
+        float(A*a*B*b*2*sizeof(T))/et << "\n";
 #endif
       *elapsed_time += et;
       return r1 || r2 || r3 || r4;
@@ -855,7 +861,7 @@ extern "C" bool cl_padding(cl_command_queue cl_queue,
   marshalprog->Init(context());
 
 #if NVIDIA
-#define REGS 24
+#define REGS 16
 #else
 #define REGS 64
 #endif
@@ -903,7 +909,7 @@ extern "C" bool cl_padding(cl_command_queue cl_queue,
   if (elapsed_time) {
     *elapsed_time += prof.Report();
   } else {
-    prof.Report(x_size*y_size*sizeof(float)*2);
+    prof.Report(x_size*y_size*sizeof(T)*2);
   }
 #endif
   return false;
@@ -924,7 +930,7 @@ extern "C" bool cl_unpadding(cl_command_queue cl_queue,
 
 #undef REGS
 #if NVIDIA
-#define REGS 32
+#define REGS 32 // 16 in Maxwell and DP-Kepler; 32 in SP-Kepler
 #else
 #define REGS 64
 #endif
@@ -972,7 +978,7 @@ extern "C" bool cl_unpadding(cl_command_queue cl_queue,
   if (elapsed_time) {
     *elapsed_time += prof.Report();
   } else {
-    prof.Report(x_size*y_size*sizeof(float)*2);
+    prof.Report(x_size*y_size*sizeof(T)*2);
   }
 #endif
   return false;

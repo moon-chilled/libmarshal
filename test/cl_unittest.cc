@@ -9,6 +9,8 @@
 #include "plan.hpp"
 #include "/usr/include/gsl/gsl_sort.h"
 
+#define T float
+
 namespace {
 class libmarshal_cl_test : public ::testing::Test {
  public:
@@ -75,11 +77,11 @@ void libmarshal_cl_test::TearDown(void) {
   delete context_;
 }
 
-int compare_output(float *output, float *ref, int dim) {
+int compare_output(T *output, T *ref, int dim) {
   int pass = 1;
   int i;
   for (i = 0; i < dim; i++) {
-    float diff = fabs(ref[i] - output[i]);
+    T diff = fabs(ref[i] - output[i]);
     if ((diff - 0.0f) > 0.00001f && diff > 0.01*fabs(ref[i])) {
       printf("line: %d ref: %f actual: %f diff: %f\n",
           i, ref[i], output[i], diff);
@@ -99,22 +101,22 @@ int compare_output(float *output, float *ref, int dim) {
 }
 
 // Generate a matrix of random numbers
-int generate_vector(float *x_vector, int dim) 
+int generate_vector(T *x_vector, int dim) 
 {       
   srand(5432);
   for(int i=0;i<dim;i++) {
-    x_vector[i] = ((float) (rand() % 100) / 100);
+    x_vector[i] = ((T) (rand() % 100) / 100);
   }
   return 0;
 }
 
-void cpu_aos_asta(float *src, float *dst, int height, int width,
+void cpu_aos_asta(T *src, T *dst, int height, int width,
     int tile_size) {
   // We only support height == multiple of tile size
   assert((height/tile_size)*tile_size == height);
   for (int i = 0; i<height/tile_size; i++) { //For all tiles
-    float *src_start = src+i*tile_size*width;
-    float *dst_start = dst+i*tile_size*width;
+    T *src_start = src+i*tile_size*width;
+    T *dst_start = dst+i*tile_size*width;
     for(int j = 0; j < tile_size; j++) {
       for (int k = 0; k < width; k++) {
         dst_start[j+k*tile_size]=src_start[j*width+k];
@@ -123,7 +125,7 @@ void cpu_aos_asta(float *src, float *dst, int height, int width,
   }
 }
 //[w][h/t][t] to [h/t][w][t] 
-void cpu_soa_asta(float *src, float *dst, int height, int width,
+void cpu_soa_asta(T *src, T *dst, int height, int width,
     int tile_size) {
   // We only support height == multiple of tile size
   assert((height/tile_size)*tile_size == height);
@@ -151,17 +153,17 @@ TEST_F(libmarshal_cl_test, bug537) {
 
     std::cerr << "w = "<<w<< "; h/t = " <<h/t<< "; t = " <<t<< ", ";
 
-    float *src = (float*)malloc(sizeof(float)*h*w);
-    float *dst = (float*)malloc(sizeof(float)*h*w);
-    float *dst_gpu = (float*)malloc(sizeof(float)*h*w);
+    T *src = (T*)malloc(sizeof(T)*h*w);
+    T *dst = (T*)malloc(sizeof(T)*h*w);
+    T *dst_gpu = (T*)malloc(sizeof(T)*h*w);
     generate_vector(src, h*w);
     cl_int err;
     cl::Buffer d_dst = cl::Buffer(*context_, CL_MEM_READ_WRITE,
-        sizeof(float)*h*w, NULL, &err);
+        sizeof(T)*h*w, NULL, &err);
     ASSERT_EQ(err, CL_SUCCESS);
     cl_uint oldqref = GetQRef();
     ASSERT_EQ(queue_->enqueueWriteBuffer(
-          d_dst, CL_TRUE, 0, sizeof(float)*h*w, src), CL_SUCCESS);
+          d_dst, CL_TRUE, 0, sizeof(T)*h*w, src), CL_SUCCESS);
     cl_uint oldref = GetCtxRef();
     // Change N to something > 1 to compute average performance (and use some WARM_UP runs).
     const int N = 4;
@@ -175,7 +177,7 @@ TEST_F(libmarshal_cl_test, bug537) {
       EXPECT_EQ(oldqref, GetQRef());
       ASSERT_EQ(false, r);
       ASSERT_EQ(queue_->enqueueReadBuffer(d_dst, CL_TRUE, 0,
-            sizeof(float)*h*w, dst_gpu), CL_SUCCESS);
+            sizeof(T)*h*w, dst_gpu), CL_SUCCESS);
       if ((n % 2) == 0) {
         cpu_soa_asta(src, dst, h, w, t);
         EXPECT_EQ(0, compare_output(dst_gpu, dst, h*w));
@@ -185,7 +187,7 @@ TEST_F(libmarshal_cl_test, bug537) {
       }
     }
     Transposition tx(w,h/t);
-    std::cerr << "Throughput = " << float(2*h*w*sizeof(float)*N)/et;
+    std::cerr << "Throughput = " << float(2*h*w*sizeof(T)*N)/et;
     std::cerr << " GB/s\t";
     std::cerr << "Num cycles:"<<tx.GetNumCycles()<< "; percentage = " <<
       (float)tx.GetNumCycles()/(float)(h*w/t)*100 << "\n";
@@ -235,16 +237,16 @@ TEST_F(libmarshal_cl_test, bug536) {
 
       if(sh_sz2 > MAX_MEM) std::cerr << "\n";
       else{
-        float *src = (float*)malloc(sizeof(float)*h*w);
-        float *dst = (float*)malloc(sizeof(float)*h*w);
-        float *dst_gpu = (float*)malloc(sizeof(float)*h*w);
+        T *src = (T*)malloc(sizeof(T)*h*w);
+        T *dst = (T*)malloc(sizeof(T)*h*w);
+        T *dst_gpu = (T*)malloc(sizeof(T)*h*w);
         generate_vector(src, h*w);
         cl_int err;
         cl::Buffer d_dst = cl::Buffer(*context_, CL_MEM_READ_WRITE,
-            sizeof(float)*h*w, NULL, &err);
+            sizeof(T)*h*w, NULL, &err);
         ASSERT_EQ(err, CL_SUCCESS);
         ASSERT_EQ(queue_->enqueueWriteBuffer(
-            d_dst, CL_TRUE, 0, sizeof(float)*h*w, src), CL_SUCCESS);
+            d_dst, CL_TRUE, 0, sizeof(T)*h*w, src), CL_SUCCESS);
         cl_uint oldref = GetCtxRef();
         cl_uint oldqref = GetQRef();
         cl_ulong et = 0;
@@ -259,7 +261,7 @@ TEST_F(libmarshal_cl_test, bug536) {
           EXPECT_EQ(oldqref, GetQRef());
           ASSERT_EQ(false, r);
           ASSERT_EQ(queue_->enqueueReadBuffer(d_dst, CL_TRUE, 0,
-              sizeof(float)*h*w, dst_gpu), CL_SUCCESS);
+              sizeof(T)*h*w, dst_gpu), CL_SUCCESS);
           if ((n%2) == 0) {
             cpu_aos_asta(src, dst, h, w, t);
             EXPECT_EQ(0, compare_output(dst_gpu, dst, h*w));
@@ -268,7 +270,7 @@ TEST_F(libmarshal_cl_test, bug536) {
             EXPECT_EQ(0, compare_output(dst_gpu, src, h*w));
           }
         }
-        std::cerr << "Throughput = " << float(h*w*2*sizeof(float)*N) / et;
+        std::cerr << "Throughput = " << float(h*w*2*sizeof(T)*N) / et;
         std::cerr << " GB/s\t";
 
         Transposition tx(t,w);
@@ -288,24 +290,24 @@ TEST_F(libmarshal_cl_test, bug533) {
   for (int t=1; t<=8; t+=1) {
     int h = (500/w+1)*(100*130+t-1)/t*t;
     std::cerr << "A = " << h/t << ", a = " << t << ", B = " << w << ", w*t = " << w*t << "\t";
-    float *src = (float*)malloc(sizeof(float)*h*w);
-    float *dst = (float*)malloc(sizeof(float)*h*w);
-    float *dst_gpu = (float*)malloc(sizeof(float)*h*w);
+    T *src = (T*)malloc(sizeof(T)*h*w);
+    T *dst = (T*)malloc(sizeof(T)*h*w);
+    T *dst_gpu = (T*)malloc(sizeof(T)*h*w);
     generate_vector(src, h*w);
     cpu_aos_asta(src, dst, h, w, t);
     cl_int err;
     cl::Buffer d_dst = cl::Buffer(*context_, CL_MEM_READ_WRITE,
-	sizeof(float)*h*w, NULL, &err);
+	sizeof(T)*h*w, NULL, &err);
     ASSERT_EQ(err, CL_SUCCESS);
     ASSERT_EQ(queue_->enqueueWriteBuffer(
-	  d_dst, CL_TRUE, 0, sizeof(float)*h*w, src), CL_SUCCESS);
+	  d_dst, CL_TRUE, 0, sizeof(T)*h*w, src), CL_SUCCESS);
     cl_uint oldref = GetCtxRef();
     cl_uint oldqref = GetQRef();
     bool r = cl_aos_asta_bs((*queue_)(), d_dst(), h, w, t);
     EXPECT_EQ(oldref, GetCtxRef());
     EXPECT_EQ(oldqref, GetQRef());
     ASSERT_EQ(false, r);
-    ASSERT_EQ(queue_->enqueueReadBuffer(d_dst, CL_TRUE, 0, sizeof(float)*h*w,
+    ASSERT_EQ(queue_->enqueueReadBuffer(d_dst, CL_TRUE, 0, sizeof(T)*h*w,
     	  dst_gpu), CL_SUCCESS);
     EXPECT_EQ(0, compare_output(dst_gpu, dst, h*w));
 
@@ -336,15 +338,14 @@ TEST_F(libmarshal_cl_test, full) {
 #define AoS 0
 #if RANDOM
   // Matrix sizes
-  // For general matrices
 #if SP
   // Single precision
 #if SoA
   // For skinny matrices (SoA-AoS)
   const int w_max = 1e7; const int w_min = 10000;
   const int h_max = 32; const int h_min = 2;
-  // For skinny matrices (AoS-SoA)
 #elif AoS
+  // For skinny matrices (AoS-SoA)
   const int h_max = 1e7; const int h_min = 10000;
   const int w_max = 32; const int w_min = 2;
 #else
@@ -354,14 +355,22 @@ TEST_F(libmarshal_cl_test, full) {
 #endif
 #else
   // Double precision
+#if SoA
+  // For skinny matrices (SoA-AoS)
+  const int w_max = 1e7; const int w_min = 10000;
+  const int h_max = 32; const int h_min = 2;
+#elif AoS
+  // For skinny matrices (AoS-SoA)
+  const int h_max = 1e7; const int h_min = 10000;
+  const int w_max = 32; const int w_min = 2;
+#else
+  // General matrices
   const int h_max = 10000; const int h_min = 1000;
   const int w_max = 10000; const int w_min = 1000;
-  // For skinny matrices (AoS-SoA)
-  //const int h_max = 10e7; const int h_min = 10000;
-  //const int w_max = 32; const int w_min = 2;
+#endif
 #endif
 
-  for (int n = 0; n < 5000; n++){
+  for (int n = 0; n < 5; n++){
   // Generate random dimensions
   srand(n+1);
   int h = rand() % (h_max-h_min) + h_min;
@@ -383,16 +392,25 @@ TEST_F(libmarshal_cl_test, full) {
   //printf("%d %d %s %s\n", pad_h, pad_w, done_h ? "true" : "false", done_w ? "true" : "false");
 #if 1
 #if SP
+  // Limits single precision
   int min_limit = 24; //8; //24; //32; //24;
-  //int min_limit = 32; //8; //24; //32; //24;
-#if SoA || AoS
-  int max_limit = MAX_MEM / min_limit; //380; //128;//320;//110;
+#if SoA
+  int max_limit = MAX_MEM / h_max; //32 is w_max in AoS, and h_max in SoA
+#elif AoS
+  int max_limit = MAX_MEM / w_max; //32 is w_max in AoS, and h_max in SoA
 #else
   int max_limit = (int)sqrt(MAX_MEM); //128;//320;//110;
 #endif
 #else
+  // Limits double precision
   int min_limit = 24;
-  int max_limit = (int)sqrt(MAX_MEM);
+#if SoA 
+  int max_limit = MAX_MEM / h_max; 
+#elif AoS
+  int max_limit = MAX_MEM / w_max; 
+#else
+  int max_limit = (int)sqrt(MAX_MEM); 
+#endif
 #endif
   //int aa, bb;
   int aa = MAX_MEM;
@@ -485,9 +503,9 @@ TEST_F(libmarshal_cl_test, full) {
   //std::cerr << "" << w/bb << "," << bb <<",\n";
 //continue;
 
-  float *src = (float*)malloc(sizeof(float)*h*w);
-  float *dst = (float*)malloc(sizeof(float)*h*w);
-  float *dst_gpu = (float*)malloc(sizeof(float)*h*w);
+  T *src = (T*)malloc(sizeof(T)*h*w);
+  T *dst = (T*)malloc(sizeof(T)*h*w);
+  T *dst_gpu = (T*)malloc(sizeof(T)*h*w);
   generate_vector(src, (h - pad_h) * (w - pad_w));
 
 #if 0
@@ -527,10 +545,10 @@ B=w/bb; b=bb;
 
   cl_int err;
   cl::Buffer d_dst = cl::Buffer(*context_, CL_MEM_READ_WRITE,
-      sizeof(float)*h*w, NULL, &err);
+      sizeof(T)*h*w, NULL, &err);
   ASSERT_EQ(err, CL_SUCCESS);
   err = queue_->enqueueWriteBuffer(
-        d_dst, CL_TRUE, 0, sizeof(float)*h*w, src);
+        d_dst, CL_TRUE, 0, sizeof(T)*h*w, src);
   EXPECT_EQ(err, CL_SUCCESS);
   if (err != CL_SUCCESS)
     continue;
@@ -540,8 +558,8 @@ B=w/bb; b=bb;
   cl_ulong et2 = 0;
   cl_ulong et3 = 0;
   // Change N to something > 1 to compute average performance (and use some WARM_UP runs).
-  const int N = 4; 
-  const int WARM_UP = 2;
+  const int N = 1; 
+  const int WARM_UP = 0;
 
 //if(a <= 1536 && b <= 1536){
 #if 0
@@ -594,14 +612,12 @@ B=w/bb; b=bb;
             continue;
         }
 #if CHECK_RESULTS
-        ASSERT_EQ(queue_->enqueueReadBuffer(d_dst, CL_TRUE, 0, sizeof(float)*(h-pad_h)*(w-pad_w),
+        ASSERT_EQ(queue_->enqueueReadBuffer(d_dst, CL_TRUE, 0, sizeof(T)*(h-pad_h)*(w-pad_w),
               dst_gpu), CL_SUCCESS);
         // compute golden
         // [h/t][t][w] to [h/t][w][t]
-        //cpu_aos_asta(src, dst, h-pad_h, w-pad_w, a);
         cpu_aos_asta(src, dst, h-pad_h, w-pad_w, 1);
         // [h/t][w][t] to [h/t][t][w]
-        //cpu_soa_asta(dst, src, (w-pad_w)*a, A, a);
         cpu_soa_asta(dst, src, (w-pad_w)*1, h-pad_h, 1);
         EXPECT_EQ(0, compare_output(dst_gpu, src, (h-pad_h)*(w-pad_w)));
 #endif
@@ -657,14 +673,12 @@ B=w/bb; b=bb;
             continue;
         }
 #if CHECK_RESULTS
-        ASSERT_EQ(queue_->enqueueReadBuffer(d_dst, CL_TRUE, 0, sizeof(float)*(h-pad_h)*(w-pad_w),
+        ASSERT_EQ(queue_->enqueueReadBuffer(d_dst, CL_TRUE, 0, sizeof(T)*(h-pad_h)*(w-pad_w),
               dst_gpu), CL_SUCCESS);
         // compute golden
         // [h/t][t][w] to [h/t][w][t]
-        //cpu_aos_asta(src, dst, h-pad_h, w-pad_w, a);
         cpu_aos_asta(src, dst, h-pad_h, w-pad_w, 1);
         // [h/t][w][t] to [h/t][t][w]
-        //cpu_soa_asta(dst, src, (w-pad_w)*a, A, a);
         cpu_soa_asta(dst, src, (w-pad_w)*1, h-pad_h, 1);
         EXPECT_EQ(0, compare_output(dst_gpu, src, (h-pad_h)*(w-pad_w)));
 #endif
@@ -713,14 +727,12 @@ B=w/bb; b=bb;
             continue;
         }
 #if CHECK_RESULTS
-        ASSERT_EQ(queue_->enqueueReadBuffer(d_dst, CL_TRUE, 0, sizeof(float)*(h-pad_h)*(w-pad_w),
+        ASSERT_EQ(queue_->enqueueReadBuffer(d_dst, CL_TRUE, 0, sizeof(T)*(h-pad_h)*(w-pad_w),
               dst_gpu), CL_SUCCESS);
         // compute golden
         // [h/t][t][w] to [h/t][w][t]
-        //cpu_aos_asta(src, dst, h-pad_h, w-pad_w, a);
         cpu_aos_asta(src, dst, h-pad_h, w-pad_w, 1);
         // [h/t][w][t] to [h/t][t][w]
-        //cpu_soa_asta(dst, src, (w-pad_w)*a, A, a);
         cpu_soa_asta(dst, src, (w-pad_w)*1, h-pad_h, 1);
         EXPECT_EQ(0, compare_output(dst_gpu, src, (h-pad_h)*(w-pad_w)));
 #endif
@@ -733,16 +745,16 @@ B=w/bb; b=bb;
     }
   }
   std::cerr << "" << h << "," << w << "\t";
-  std::cerr << "Max_Throughput = " << float(h*w*2*sizeof(float)) / max_et;
+  std::cerr << "Max_Throughput = " << float(h*w*2*sizeof(T)) / max_et;
   std::cerr << " GB/s\n";
 #else
-  std::cerr << "Padding_Throughput = " << float(2*h*w*sizeof(float)*N)/et2;
+  std::cerr << "Padding_Throughput = " << float(2*h*w*sizeof(T)*N)/et2;
   std::cerr << " GB/s\t";
-  std::cerr << "Transpose_Throughput = " << float(2*h*w*sizeof(float)*N)/et;
+  std::cerr << "Transpose_Throughput = " << float(2*h*w*sizeof(T)*N)/et;
   std::cerr << " GB/s\t";
-  std::cerr << "Unpadding_Throughput = " << float(2*h*w*sizeof(float)*N)/et3;
+  std::cerr << "Unpadding_Throughput = " << float(2*h*w*sizeof(T)*N)/et3;
   std::cerr << " GB/s\t";
-  std::cerr << "Throughput = " << float(2*h*w*sizeof(float)*N)/(et + et2 + et3);
+  std::cerr << "Throughput = " << float(2*h*w*sizeof(T)*N)/(et + et2 + et3);
   std::cerr << " GB/s\n";
 #endif
   free(src);
@@ -763,17 +775,17 @@ TEST_F(libmarshal_cl_test, test_0100) {
   int A = As[0];
   size_t size = A*a*B*b;
 
-  float *src = (float*)malloc(sizeof(float)*size);
-  float *dst = (float*)malloc(sizeof(float)*size);
-  float *dst_gpu = (float*)malloc(sizeof(float)*size);
+  T *src = (T*)malloc(sizeof(T)*size);
+  T *dst = (T*)malloc(sizeof(T)*size);
+  T *dst_gpu = (T*)malloc(sizeof(T)*size);
   generate_vector(src, size);
 
   cl_int err;
   cl::Buffer d_dst = cl::Buffer(*context_, CL_MEM_READ_WRITE,
-      sizeof(float)*size, NULL, &err);
+      sizeof(T)*size, NULL, &err);
   ASSERT_EQ(err, CL_SUCCESS);
   ASSERT_EQ(queue_->enqueueWriteBuffer(
-        d_dst, CL_TRUE, 0, sizeof(float)*size, src), CL_SUCCESS);
+        d_dst, CL_TRUE, 0, sizeof(T)*size, src), CL_SUCCESS);
   bool r = false;
   r = cl_transpose_0100((*queue_)(), d_dst(), A, a, B, b, NULL);
   // This may fail
@@ -784,7 +796,7 @@ TEST_F(libmarshal_cl_test, test_0100) {
       dst+i*(a*B*b), B*b /*h*/, a /*w*/, b /*t*/);
   }
   ASSERT_EQ(queue_->enqueueReadBuffer(d_dst, CL_TRUE, 0,
-    sizeof(float)*size, dst_gpu), CL_SUCCESS);
+    sizeof(T)*size, dst_gpu), CL_SUCCESS);
   EXPECT_EQ(0, compare_output(dst_gpu, dst, size));
   free(src);
   free(dst);
