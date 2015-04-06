@@ -11,6 +11,7 @@
 // See LICENSE.TXT for details.
 //
 // Author: I-Jui Sung (sung10@illinois.edu)
+// Author: Juan Gómez-Luna (gomezlun@illinois.edu, el1goluj@uco.es)
 //
 //===---------------------------------------------------------------------===//
 //
@@ -30,11 +31,17 @@
 #include <math.h>
 #include <stdio.h>
 
-#define T float
-
-#define NVIDIA 0
+// Double check NVIDIA and SP flags have the same value as in ~/test/cl_unittest.cc
+#define NVIDIA 0 // NVIDIA or other (e.g., AMD)
 // SP = 1 -> Single precision; SP = 0 -> Double precision
-#define SP 1
+#define SP 0
+
+#if SP
+#define T float
+#else
+#define T double
+#endif
+
 #if NVIDIA
 // Shared memory in Fermi and Kepler is 48 KB, i.e., 12288 SP or 6144 DP.
 #if SP
@@ -51,6 +58,7 @@
 #endif
 #endif
 
+// Default work-group sizes
 #if NVIDIA
 #define NR_THREADS 1024
 #else
@@ -111,7 +119,6 @@ extern "C" void cl_marshal_finalize(void) {
 }
 
 #define IS_POW2(x) (x && !(x &( x- 1)))
-//#define IS_POW2(x) 0
 // v: 32-bit word input to count zero bits on right
 static int count_zero_bits(unsigned int v) {
   unsigned int c = 32; // c will be the number of zero bits on the right
@@ -465,8 +472,9 @@ bool _cl_transpose_0100(cl_command_queue cl_queue,
 #if NVIDIA
 #define LOCALMEM_TILING 0
 #else
-#define LOCALMEM_TILING 1 // For now, AMD uses local memory
+#define LOCALMEM_TILING 1
 #endif
+
 #if SP
 #if LOCALMEM_TILING
   err = kernel.setArg(5, b<192?(b*(WARPS*WARP_SIZE/v_warp_size)*sizeof(cl_float)):(b*sizeof(cl_float)), NULL);
@@ -556,21 +564,6 @@ bool _cl_transpose_0100(cl_command_queue cl_queue,
   return false;
 }
 
-#if NVIDIA
-// Shared memory in Fermi and Kepler is 48 KB, i.e., 12288 SP or 6144 DP.
-#if SP
-#define MAX_MEM 12288 // Use 4096 for other devices.
-#else
-#define MAX_MEM 6144 // Use 2048 for other devices.
-#endif
-#else
-// Local memory in AMD devices is 32 KB, i.e., 8192 SP or 4096 DP.
-#if SP
-#define MAX_MEM 8192 // Use 4096 for other devices.
-#else
-#define MAX_MEM 4096 // Use 2048 for other devices.
-#endif
-#endif
 
 extern "C" bool cl_transpose(cl_command_queue queue, cl_mem src, int A, int a,
   int B, int b, int R, int stages, cl_ulong *elapsed_time) {
@@ -861,7 +854,7 @@ extern "C" bool cl_padding(cl_command_queue cl_queue,
   marshalprog->Init(context());
 
 #if NVIDIA
-#define REGS 16
+#define REGS 8 //16
 #else
 #define REGS 64
 #endif
@@ -930,7 +923,7 @@ extern "C" bool cl_unpadding(cl_command_queue cl_queue,
 
 #undef REGS
 #if NVIDIA
-#define REGS 32 // 16 in Maxwell and DP-Kepler; 32 in SP-Kepler
+#define REGS 8 //16
 #else
 #define REGS 64
 #endif

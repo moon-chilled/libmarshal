@@ -9,7 +9,31 @@
 #include "plan.hpp"
 #include "/usr/include/gsl/gsl_sort.h"
 
+#define NVIDIA 0 // Choose compilation for NVIDIA or other (e.g., AMD)
+#define SP 0 // SP = 1 -> Single Precision; SP = 0 -> Double Precision 
+
+#if SP
 #define T float
+#else
+#define T double
+#endif
+
+#if NVIDIA
+// Shared memory in Fermi and Kepler is 48 KB, i.e., 12288 SP or 6144 DP.
+#if SP
+#define MAX_MEM 12288 // Use 4096 for other devices.
+#else
+#define MAX_MEM 6144 // Use 2048 for other devices.
+#endif
+#else
+// Local memory in AMD devices is 32 KB, i.e., 8192 SP or 4096 DP.
+#if SP
+#define MAX_MEM 8192 // Use 4096 for other devices.
+#else
+#define MAX_MEM 4096 // Use 2048 for other devices.
+#endif
+#endif
+#define CHECK_RESULTS 1 
 
 namespace {
 class libmarshal_cl_test : public ::testing::Test {
@@ -41,6 +65,7 @@ void libmarshal_cl_test::SetUp(void) {
     std::cerr << "Platform size 0\n";
     return;
   }
+  // Choose Platform (e.g., NVIDIA or AMD)
   //int i = 0;
   int i = 1;
   for (; i < platforms.size(); i++) {
@@ -101,8 +126,7 @@ int compare_output(T *output, T *ref, int dim) {
 }
 
 // Generate a matrix of random numbers
-int generate_vector(T *x_vector, int dim) 
-{       
+int generate_vector(T *x_vector, int dim) {       
   srand(5432);
   for(int i=0;i<dim;i++) {
     x_vector[i] = ((T) (rand() % 100) / 100);
@@ -142,11 +166,11 @@ void cpu_soa_asta(T *src, T *dst, int height, int width,
 
 }
 
+// Bug537 - Test Transpose 100 (PTTWAC)
 TEST_F(libmarshal_cl_test, bug537) {
-  int ws[6] = {40, 62, 197, 215, 59, 39};
-  int hs[6] = {11948, 17281, 35588, 44609, 90449, 49152};
-  for (int i = 0; i < 6; i++)
-  //for (int t = 1; t <= 2048; t*=2) {	// 4096
+  int ws[2] = {197, 215};
+  int hs[2] = {35588, 44609};
+  for (int i = 0; i < 2; i++)
   for (int t = 1; t <= 1024; t*=2) {
     int w = ws[i];
     int h = (hs[i]+t-1)/t*t;
@@ -166,8 +190,8 @@ TEST_F(libmarshal_cl_test, bug537) {
           d_dst, CL_TRUE, 0, sizeof(T)*h*w, src), CL_SUCCESS);
     cl_uint oldref = GetCtxRef();
     // Change N to something > 1 to compute average performance (and use some WARM_UP runs).
-    const int N = 4;
-    const int WARM_UP = 2;
+    const int N = 1;
+    const int WARM_UP = 0;
     cl_ulong et = 0;
     for (int n = 0; n < N+WARM_UP; n++) {
       if (n == WARM_UP)
@@ -197,37 +221,18 @@ TEST_F(libmarshal_cl_test, bug537) {
   }
 }
 
-#define CHECK_RESULTS 1 
-#define NVIDIA 0
-#define SP 1 // SP = 1 -> Single Precision; SP = 0 -> Double Precision 
-
-#if NVIDIA
-// Shared memory in Fermi and Kepler is 48 KB, i.e., 12288 SP or 6144 DP.
-#if SP
-#define MAX_MEM 12288 // Use 4096 for other devices.
-#else
-#define MAX_MEM 6144 // Use 2048 for other devices.
-#endif
-#else
-// Local memory in AMD devices is 32 KB, i.e., 8192 SP or 4096 DP.
-#if SP
-#define MAX_MEM 8192 // Use 4096 for other devices.
-#else
-#define MAX_MEM 4096 // Use 2048 for other devices.
-#endif
-#endif
-
+// Bug536 - Test Transpose 010 (PTTWAC)
 TEST_F(libmarshal_cl_test, bug536) {
-  int ws[6] = {40, 62, 197, 215, 59, 39};
-  int hs[6] = {11948, 17281, 35588, 44609, 90449, 49152};
-  for (int i = 0; i < 6; i++)
+  int ws[2] = {197, 215};
+  int hs[2] = {35588, 44609};
+  for (int i = 0; i < 2; i++)
   for (int t = 16; t <= 64; t*=2) {
     int w = ws[i];
     int h = (hs[i]+t-1)/t*t;
 
 #define P 1 // Padding size
     bool r;
-    for(int S_f = 1; S_f <= 32; S_f *=2){ // (Use S_f <= 1 for testing IPT) - S_f = Spreading factor
+    for(int S_f = 1; S_f < 32; S_f *=2){ // (Use S_f <= 1 for testing IPT) - S_f = Spreading factor
 
       int sh_sz2 = S_f * ((t*w+31)/32);
       sh_sz2 += (sh_sz2 >> 5) * P;
@@ -285,8 +290,9 @@ TEST_F(libmarshal_cl_test, bug536) {
   }
 }
 
+// Bug533 - Test Transpose 010 (BS)
 TEST_F(libmarshal_cl_test, bug533) {
-  for (int w = 3; w <= 768; w*=4)
+  for (int w = 3; w <= 384; w*=2)
   for (int t=1; t<=8; t+=1) {
     int h = (500/w+1)*(100*130+t-1)/t*t;
     std::cerr << "A = " << h/t << ", a = " << t << ", B = " << w << ", w*t = " << w*t << "\t";
@@ -332,12 +338,14 @@ void tile(int x) {
 #include "heuristic.cc"
 #include "heuristic33.cc"
 
-TEST_F(libmarshal_cl_test, full) {
+// Bug_full - Test full transposition of general matrices or AoS-SoA conversions
 #define RANDOM 1
-#define SoA 0
-#define AoS 0
+#define SoA 0 // SoA to AoS conversion
+#define AoS 0 // AoS to SoA conversion
+TEST_F(libmarshal_cl_test, full) {
 #if RANDOM
   // Matrix sizes
+  // For general matrices
 #if SP
   // Single precision
 #if SoA
@@ -365,54 +373,48 @@ TEST_F(libmarshal_cl_test, full) {
   const int w_max = 32; const int w_min = 2;
 #else
   // General matrices
-  const int h_max = 10000; const int h_min = 1000;
-  const int w_max = 10000; const int w_min = 1000;
+  const int h_max = 15000; const int h_min = 1000;
+  const int w_max = 15000; const int w_min = 1000;
 #endif
 #endif
 
-  for (int n = 0; n < 5; n++){
+  for (int n = 0; n < 20; n++){
   // Generate random dimensions
   srand(n+1);
   int h = rand() % (h_max-h_min) + h_min;
   int w = rand() % (w_max-w_min) + w_min;
 #else 
-  int ws[] = {18001, 25001, 32001, 3900001, 51001, 720001}; // Matrix sizes in PPoPP2014 paper
-  int hs[] = {22, 5, 4, 3, 25, 18};
+  int ws[] = {1800, 2500, 3200, 3900, 5100, 7200}; // Matrix sizes in PPoPP2014 paper
+  int hs[] = {7200, 5100, 4000, 3300, 2500, 1800};
   for (int n = 0; n < 6; n++) {
   int w = ws[n];
   int h = hs[n];
 #endif
 
+  // Print matrix dimensions
   std::cerr << "" << n << "\t" << "" << h << "," << w << "\t";
 
+  // Choose super-element sizes (a and b) - Algorithm 5 (TPDS paper)
   std::vector<int> hoptions;
   std::vector<int> woptions;
   int pad_h = 0; int pad_w = 0;
   bool done_h = false; bool done_w = false;
-  //printf("%d %d %s %s\n", pad_h, pad_w, done_h ? "true" : "false", done_w ? "true" : "false");
 #if 1
 #if SP
-  // Limits single precision
-  int min_limit = 24; //8; //24; //32; //24;
-#if SoA
-  int max_limit = MAX_MEM / h_max; //32 is w_max in AoS, and h_max in SoA
-#elif AoS
-  int max_limit = MAX_MEM / w_max; //32 is w_max in AoS, and h_max in SoA
+  int min_limit = 24; 
+#if SoA || AoS
+  int max_limit = MAX_MEM / 32; //32 is w_max or h_max in these experiments 
 #else
-  int max_limit = (int)sqrt(MAX_MEM); //128;//320;//110;
+  int max_limit = (int)sqrt(MAX_MEM); 
 #endif
 #else
-  // Limits double precision
   int min_limit = 24;
-#if SoA 
-  int max_limit = MAX_MEM / h_max; 
-#elif AoS
-  int max_limit = MAX_MEM / w_max; 
+#if SoA || AoS
+  int max_limit = MAX_MEM / 32; //32 is w_max or h_max in these experiments 
 #else
   int max_limit = (int)sqrt(MAX_MEM); 
 #endif
 #endif
-  //int aa, bb;
   int aa = MAX_MEM;
   int bb = MAX_MEM;
 #endif
@@ -458,6 +460,7 @@ TEST_F(libmarshal_cl_test, full) {
       {done_w = true;
       bb = w;}
 #else
+//if (done_h){
       //for (int j = 0; j < woptions.size(); j++)
       for (int j = woptions.size() - 1; j >= 0; j--)
         if (woptions[wf_sorted2[j]] >= min_limit && woptions[wf_sorted2[j]] <= max_limit){
@@ -466,6 +469,11 @@ TEST_F(libmarshal_cl_test, full) {
           done_w = true;
           break;
         }
+    //if (!done_w){
+    //  pad_w++;
+    //  w++;
+    //}
+//}
 #endif
 
     if (!done_h){
@@ -493,15 +501,12 @@ TEST_F(libmarshal_cl_test, full) {
 #endif
   }while(!done_h || !done_w);
 
+  // Print padding sizes
   std::cerr << "" << hoptions.size() << "," << woptions.size() << "\t";
   std::cerr << "percent_pad " << ((float)((w-(w-pad_w))*100)/(float)(w-pad_w)) << "%\t";
   std::cerr << "percent_unpad " << ((float)((h-(h-pad_h))*100)/(float)(h-pad_h)) << "%\t";
-
   std::cerr << "pad_h = " << pad_h << ", pad_w = " << pad_w << ",";
   std::cerr << " h + pad_h = " << h << ", w + pad_w = " << w << ",";
-  //std::cerr << "" << h/aa << "," << aa << ",";
-  //std::cerr << "" << w/bb << "," << bb <<",\n";
-//continue;
 
   T *src = (T*)malloc(sizeof(T)*h*w);
   T *dst = (T*)malloc(sizeof(T)*h*w);
@@ -538,8 +543,8 @@ TEST_F(libmarshal_cl_test, full) {
   //std::cerr << "" << A << "," << a << ",";
   //std::cerr << "" << B << "," << b <<",";
 #else
-A=h/aa; a=aa;
-B=w/bb; b=bb;
+  A=h/aa; a=aa;
+  B=w/bb; b=bb;
 #endif
 #endif
 
@@ -561,6 +566,7 @@ B=w/bb; b=bb;
   const int N = 1; 
   const int WARM_UP = 0;
 
+  // Once selected super-element sizes (and tile size) the appropriate sequence of elementary transpositions is choosen (Algorithm 3 - TPDS paper)
 //if(a <= 1536 && b <= 1536){
 #if 0
     if((a >= 6 && a*B*b <= MAX_MEM) || b < 3 && ((a >= b && ((a*B*b+31)/32) + ((((a*B*b+31)/32)>>5)*1) <= MAX_MEM) || (A > b && ((A*B*b+31)/32) + ((((A*B*b+31)/32)>>5)*1) <= MAX_MEM))){
@@ -576,16 +582,14 @@ B=w/bb; b=bb;
       std::cerr << "" << A << "," << a << ",";
       std::cerr << "" << B*b << ",";
 
-      // Calculate spreading factor
+      // Calculate spreading factor (in case 010-PTTWAC is needed)
       int S_f = MAX_MEM / (((a*B*b+31)/32) + ((((a*B*b+31)/32)>>5)*P));
-      //std::cerr << "S_f = " << S_f << ",";
       if (S_f < 2) S_f = 1;
       else if (S_f >=2 && S_f < 4) S_f = 2;
       else if (S_f >=4 && S_f < 8) S_f = 4;
       else if (S_f >=8 && S_f < 16) S_f = 8;
       else if (S_f >=16 && S_f < 32) S_f = 8; //16;
       else S_f = 32; // BS will be used
-      //std::cerr << "" << S_f << ",\t";
 
       // 2-stage approach
       for (int n = 0; n < N+WARM_UP; n++) {
@@ -616,8 +620,10 @@ B=w/bb; b=bb;
               dst_gpu), CL_SUCCESS);
         // compute golden
         // [h/t][t][w] to [h/t][w][t]
+        //cpu_aos_asta(src, dst, h-pad_h, w-pad_w, a);
         cpu_aos_asta(src, dst, h-pad_h, w-pad_w, 1);
         // [h/t][w][t] to [h/t][t][w]
+        //cpu_soa_asta(dst, src, (w-pad_w)*a, A, a);
         cpu_soa_asta(dst, src, (w-pad_w)*1, h-pad_h, 1);
         EXPECT_EQ(0, compare_output(dst_gpu, src, (h-pad_h)*(w-pad_w)));
 #endif
@@ -677,8 +683,10 @@ B=w/bb; b=bb;
               dst_gpu), CL_SUCCESS);
         // compute golden
         // [h/t][t][w] to [h/t][w][t]
+        //cpu_aos_asta(src, dst, h-pad_h, w-pad_w, a);
         cpu_aos_asta(src, dst, h-pad_h, w-pad_w, 1);
         // [h/t][w][t] to [h/t][t][w]
+        //cpu_soa_asta(dst, src, (w-pad_w)*a, A, a);
         cpu_soa_asta(dst, src, (w-pad_w)*1, h-pad_h, 1);
         EXPECT_EQ(0, compare_output(dst_gpu, src, (h-pad_h)*(w-pad_w)));
 #endif
@@ -731,8 +739,10 @@ B=w/bb; b=bb;
               dst_gpu), CL_SUCCESS);
         // compute golden
         // [h/t][t][w] to [h/t][w][t]
+        //cpu_aos_asta(src, dst, h-pad_h, w-pad_w, a);
         cpu_aos_asta(src, dst, h-pad_h, w-pad_w, 1);
         // [h/t][w][t] to [h/t][t][w]
+        //cpu_soa_asta(dst, src, (w-pad_w)*a, A, a);
         cpu_soa_asta(dst, src, (w-pad_w)*1, h-pad_h, 1);
         EXPECT_EQ(0, compare_output(dst_gpu, src, (h-pad_h)*(w-pad_w)));
 #endif

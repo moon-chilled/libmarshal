@@ -24,10 +24,16 @@
 #pragma OPENCL EXTENSION cl_khr_global_int32_extended_atomics : enable
 #pragma OPENCL EXTENSION cl_khr_fp64 : enable
 
-#define T float
-#define SP 1
-
+// Double check NVIDIA and SP flags have the same value as in ~/test/cl_unittest.cc and ~/src/cl_marshal.cc
 #define NVIDIA 0
+#define SP 0
+
+#if SP
+#define T float
+#else
+#define T double
+#endif
+
 #if NVIDIA
 #define WARP_SIZE 32
 #else
@@ -277,11 +283,11 @@ __kernel void transpose_010_PTTWAC(__global T *input, int A,
 // Transformation 100, or ABb to BAb
 // limitations: b cannot exceed # of allowed threads in the system
 // Launch A*B work-groups of b work-items
-__kernel void transpose_100(__global float *input, 
+__kernel void transpose_100(__global T *input, 
     int A, int B, int b, __global int *finished) {
   int m = A*B-1;
   int tid = get_local_id(0);
-  float data;
+  T data;
   for(int gid = get_group_id(0); gid < m; gid += get_num_groups(0)) {
     int next_in_cycle = (gid * A)-m*(gid/B);
     if (next_in_cycle == gid)
@@ -297,7 +303,7 @@ __kernel void transpose_100(__global float *input,
     for (next_in_cycle = (gid * A)-m*(gid/B);
       next_in_cycle > gid;
       next_in_cycle = (next_in_cycle*A)-m*(next_in_cycle/B)) {
-      float backup = input[next_in_cycle*b+tid];
+      T backup = input[next_in_cycle*b+tid];
       input[next_in_cycle*b+tid] = data;
       data = backup;
     }
@@ -311,7 +317,7 @@ __kernel void transpose_100(__global float *input,
     barrier(CLK_LOCAL_MEM_FENCE|CLK_GLOBAL_MEM_FENCE);
 
     for (;done == 0; next_in_cycle = (next_in_cycle*A)-m*(next_in_cycle/B)) {
-      float backup = input[next_in_cycle*b+tid];
+      T backup = input[next_in_cycle*b+tid];
       barrier(CLK_LOCAL_MEM_FENCE|CLK_GLOBAL_MEM_FENCE);
       if (tid == 0) {
         done = atom_xchg(finished+next_in_cycle, (int)1);
@@ -337,7 +343,7 @@ __kernel void transpose_100(__global float *input,
 #if NVIDIA
 #define LOCALMEM_TILING 0 // 1 - Local memory tiling; 0 - Register tiling
 #else
-#define LOCALMEM_TILING 1 // For now, AMD uses local memory 
+#define LOCALMEM_TILING 1 
 #endif
 #if LOCALMEM_TILING
 void _transpose_100(__global T *input,
@@ -443,6 +449,21 @@ void _transpose_100(__global T *input,
       data[warp_id*b+i] = input[gid*b+i];
     }
 #else
+#if SP
+    float data1, data2, data3, data4, data5, data6;
+    int i = tid;
+    if(i < b) data1 = input[gid*b+i];
+    i += warp_size;
+    if(i < b) data2 = input[gid*b+i];
+    i += warp_size;
+    if(i < b) data3 = input[gid*b+i];
+    i += warp_size;
+    if(i < b) data4 = input[gid*b+i];
+    i += warp_size;
+    if(i < b) data5 = input[gid*b+i];
+    i += warp_size;
+    if(i < b) data6 = input[gid*b+i];
+#else
     T data1, data2, data3;
     int i = tid;
     if(i < b) data1 = input[gid*b+i];
@@ -450,14 +471,6 @@ void _transpose_100(__global T *input,
     if(i < b) data2 = input[gid*b+i];
     i += warp_size;
     if(i < b) data3 = input[gid*b+i];
-#if SP
-    T data4, data5, data6;
-    i += warp_size;
-    if(i < b) data4 = input[gid*b+i];
-    i += warp_size;
-    if(i < b) data5 = input[gid*b+i];
-    i += warp_size;
-    if(i < b) data6 = input[gid*b+i];
 #endif
 #endif
     if (tid == 0){
@@ -477,6 +490,21 @@ void _transpose_100(__global T *input,
         backup[warp_id*b+i] = input[next_in_cycle*b+i];
       }
 #else
+#if SP
+      T backup1, backup2, backup3, backup4, backup5, backup6;
+      i = tid;
+      if(i < b) backup1 = input[next_in_cycle*b+i];
+      i += warp_size;
+      if(i < b) backup2 = input[next_in_cycle*b+i];
+      i += warp_size;
+      if(i < b) backup3 = input[next_in_cycle*b+i];
+      i += warp_size;
+      if(i < b) backup4 = input[next_in_cycle*b+i];
+      i += warp_size;
+      if(i < b) backup5 = input[next_in_cycle*b+i];
+      i += warp_size;
+      if(i < b) backup6 = input[next_in_cycle*b+i];
+#else
       T backup1, backup2, backup3;
       i = tid;
       if(i < b) backup1 = input[next_in_cycle*b+i];
@@ -484,14 +512,6 @@ void _transpose_100(__global T *input,
       if(i < b) backup2 = input[next_in_cycle*b+i];
       i += warp_size;
       if(i < b) backup3 = input[next_in_cycle*b+i];
-#if SP
-      T backup4, backup5, backup6;
-      i += warp_size;
-      if(i < b) backup4 = input[next_in_cycle*b+i];
-      i += warp_size;
-      if(i < b) backup5 = input[next_in_cycle*b+i];
-      i += warp_size;
-      if(i < b) backup6 = input[next_in_cycle*b+i];
 #endif
 #endif
       if (tid == 0) {
@@ -528,14 +548,14 @@ void _transpose_100(__global T *input,
       for(int i = tid; i < b; i += warp_size){
         data[warp_id*b+i] = backup[warp_id*b+i];
       }
-#else 
+#else
       i = tid;
       if(i < b) data1 = backup1;
       i += warp_size;
       if(i < b) data2 = backup2;
       i += warp_size;
       if(i < b) data3 = backup3;
-#if SP
+#if SP 
       i += warp_size;
       if(i < b) data4 = backup4;
       i += warp_size;
@@ -548,8 +568,7 @@ void _transpose_100(__global T *input,
 #endif
   }
 }
-//#undef LOCALMEM_TILING
-//#define LOCALMEM_TILING 0
+
 // Block-centric version
 #if LOCALMEM_TILING
 void _transpose_100_b(__global T *input,
@@ -587,6 +606,21 @@ void _transpose_100_b(__global T *input,
       data[i] = input[gid*b+i];
     }
 #else
+#if SP
+    float data1, data2, data3, data4, data5, data6;
+    int i = tid;
+    if(i < b) data1 = input[gid*b+i];
+    i += group_size;
+    if(i < b) data2 = input[gid*b+i];
+    i += group_size;
+    if(i < b) data3 = input[gid*b+i];
+    i += group_size;
+    if(i < b) data4 = input[gid*b+i];
+    i += group_size;
+    if(i < b) data5 = input[gid*b+i];
+    i += group_size;
+    if(i < b) data6 = input[gid*b+i];
+#else
     T data1, data2, data3;
     int i = tid;
     if(i < b) data1 = input[gid*b+i];
@@ -594,14 +628,6 @@ void _transpose_100_b(__global T *input,
     if(i < b) data2 = input[gid*b+i];
     i += group_size;
     if(i < b) data3 = input[gid*b+i];
-#if SP
-    T data4, data5, data6;
-    i += group_size;
-    if(i < b) data4 = input[gid*b+i];
-    i += group_size;
-    if(i < b) data5 = input[gid*b+i];
-    i += group_size;
-    if(i < b) data6 = input[gid*b+i];
 #endif
 #endif
     barrier(CLK_LOCAL_MEM_FENCE|CLK_GLOBAL_MEM_FENCE);
@@ -622,6 +648,21 @@ void _transpose_100_b(__global T *input,
         backup[i] = input[next_in_cycle*b+i];
       }
 #else
+#if SP
+      float backup1, backup2, backup3, backup4, backup5, backup6;
+      i = tid;
+      if(i < b) backup1 = input[next_in_cycle*b+i];
+      i += group_size;
+      if(i < b) backup2 = input[next_in_cycle*b+i];
+      i += group_size;
+      if(i < b) backup3 = input[next_in_cycle*b+i];
+      i += group_size;
+      if(i < b) backup4 = input[next_in_cycle*b+i];
+      i += group_size;
+      if(i < b) backup5 = input[next_in_cycle*b+i];
+      i += group_size;
+      if(i < b) backup6 = input[next_in_cycle*b+i];
+#else
       T backup1, backup2, backup3;
       i = tid;
       if(i < b) backup1 = input[next_in_cycle*b+i];
@@ -629,14 +670,6 @@ void _transpose_100_b(__global T *input,
       if(i < b) backup2 = input[next_in_cycle*b+i];
       i += group_size;
       if(i < b) backup3 = input[next_in_cycle*b+i];
-#if SP
-      T backup4, backup5, backup6;
-      i += group_size;
-      if(i < b) backup4 = input[next_in_cycle*b+i];
-      i += group_size;
-      if(i < b) backup5 = input[next_in_cycle*b+i];
-      i += group_size;
-      if(i < b) backup6 = input[next_in_cycle*b+i];
 #endif
 #endif
       barrier(CLK_LOCAL_MEM_FENCE|CLK_GLOBAL_MEM_FENCE);
@@ -785,7 +818,7 @@ __kernel void transpose_0100_b(__global T *input,
 
 //////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 #if NVIDIA
-#define REGS 16
+#define REGS 8 //16
 #define ATOM 0
 #else
 #define REGS 64
@@ -826,6 +859,8 @@ __kernel void padding( __global T *matrix,
     pos2 = my_s_row * x_size + my_x;
   }
 
+  barrier(CLK_LOCAL_MEM_FENCE);
+
   // Set global synch
 #if ATOM
   if (get_local_id(0) == 0){
@@ -855,7 +890,7 @@ __kernel void padding( __global T *matrix,
 #undef REGS
 #undef ATOM
 #if NVIDIA
-#define REGS 32
+#define REGS 8 //16
 #define ATOM 0
 #else
 #define REGS 64
@@ -884,6 +919,8 @@ __kernel void unpadding( __global T *matrix,
     if (pos < y_size * pad_size) reg[j] = matrix[pos];
     pos += get_local_size(0);
   }
+
+  barrier(CLK_LOCAL_MEM_FENCE);
 
   // Set global synch
 #if ATOM
