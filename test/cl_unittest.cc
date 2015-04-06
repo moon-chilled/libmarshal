@@ -9,8 +9,9 @@
 #include "plan.hpp"
 #include "/usr/include/gsl/gsl_sort.h"
 
-#define NVIDIA 0 // Choose compilation for NVIDIA or other (e.g., AMD)
-#define SP 0 // SP = 1 -> Single Precision; SP = 0 -> Double Precision 
+#define NVIDIA 1 // Choose compilation for NVIDIA or other (e.g., AMD)
+#define SP 1 // SP = 1 -> Single Precision; SP = 0 -> Double Precision 
+// Make sure these two flags have the same value in ~/src/cl_marshal.cc and ~/src/cl/cl_aos_asta.cl
 
 #if SP
 #define T float
@@ -66,8 +67,8 @@ void libmarshal_cl_test::SetUp(void) {
     return;
   }
   // Choose Platform (e.g., NVIDIA or AMD)
-  //int i = 0;
-  int i = 1;
+  int i = 0;
+  //int i = 1;
   for (; i < platforms.size(); i++) {
     std::vector<cl::Device> devices;
     platforms[i].getDevices(CL_DEVICE_TYPE_GPU, &devices);
@@ -335,8 +336,6 @@ void tile(int x) {
   std::cout << "\n";
 }
 
-#include "heuristic.cc"
-#include "heuristic33.cc"
 
 // Bug_full - Test full transposition of general matrices or AoS-SoA conversions
 #define RANDOM 1
@@ -378,7 +377,7 @@ TEST_F(libmarshal_cl_test, full) {
 #endif
 #endif
 
-  for (int n = 0; n < 20; n++){
+  for (int n = 0; n < 15; n++){
   // Generate random dimensions
   srand(n+1);
   int h = rand() % (h_max-h_min) + h_min;
@@ -399,7 +398,7 @@ TEST_F(libmarshal_cl_test, full) {
   std::vector<int> woptions;
   int pad_h = 0; int pad_w = 0;
   bool done_h = false; bool done_w = false;
-#if 1
+  // Minimum and maximum for super-element sizes (they might be different for float and double)
 #if SP
   int min_limit = 24; 
 #if SoA || AoS
@@ -417,28 +416,18 @@ TEST_F(libmarshal_cl_test, full) {
 #endif
   int aa = MAX_MEM;
   int bb = MAX_MEM;
-#endif
   do{
     // Factorize dimensions
     Factorize hf(h), wf(w);
-
     hf.tiling_options();
     wf.tiling_options();
     hoptions = hf.get_tile_sizes();
     woptions = wf.get_tile_sizes();
-    //std::cerr << "" << hoptions.size() << "," << woptions.size() << "\t";
-#if 1
     // Sort factors
-    //for(int x=0; x<hoptions.size(); x++) printf("%d ", hoptions[x]);
-    //printf("\n");
     size_t hf_sorted2[hoptions.size()];
     size_t wf_sorted2[woptions.size()];
     gsl_sort_int_index((size_t *)hf_sorted2, &hoptions[0], 1, hoptions.size());
-    //for(int x=0; x<hoptions.size(); x++) printf("%d ", hoptions[hf_sorted[x]]);
-    //printf("\n");
     gsl_sort_int_index((size_t *)wf_sorted2, &woptions[0], 1, woptions.size());
-    //for(int x=0; x<woptions.size(); x++) printf("%d ", woptions[wf_sorted[x]]);
-    //printf("\n");
 
     // Desired minimum and maximum for a and b
     if (!done_h)
@@ -446,7 +435,6 @@ TEST_F(libmarshal_cl_test, full) {
       {done_h = true;
       aa = h;}
 #else
-      //for (int j = 0; j < hoptions.size(); j++)
       for (int j = hoptions.size() - 1; j >= 0; j--)
         if (hoptions[hf_sorted2[j]] >= min_limit && hoptions[hf_sorted2[j]] <= max_limit){
           aa = hoptions[hf_sorted2[j]];
@@ -460,20 +448,12 @@ TEST_F(libmarshal_cl_test, full) {
       {done_w = true;
       bb = w;}
 #else
-//if (done_h){
-      //for (int j = 0; j < woptions.size(); j++)
       for (int j = woptions.size() - 1; j >= 0; j--)
         if (woptions[wf_sorted2[j]] >= min_limit && woptions[wf_sorted2[j]] <= max_limit){
-        //if (woptions[wf_sorted2[j]] >= min_limit && woptions[wf_sorted2[j]] * aa <= MAX_MEM){
           bb = woptions[wf_sorted2[j]];
           done_w = true;
           break;
         }
-    //if (!done_w){
-    //  pad_w++;
-    //  w++;
-    //}
-//}
 #endif
 
     if (!done_h){
@@ -484,22 +464,7 @@ TEST_F(libmarshal_cl_test, full) {
       pad_w++;
       w++;
     }
-#else
-    // Pad h
-    if (hoptions.size() < 1){ //5, 7, 9
-      pad_h++;
-      h++;
-    }
-    else done_h = true;
-
-    // Pad w
-    if (woptions.size() < 1){ //5, 7, 9
-      pad_w++;
-      w++;
-    }
-    else done_w = true;
-#endif
-  }while(!done_h || !done_w);
+  } while(!done_h || !done_w);
 
   // Print padding sizes
   std::cerr << "" << hoptions.size() << "," << woptions.size() << "\t";
@@ -508,26 +473,13 @@ TEST_F(libmarshal_cl_test, full) {
   std::cerr << "pad_h = " << pad_h << ", pad_w = " << pad_w << ",";
   std::cerr << " h + pad_h = " << h << ", w + pad_w = " << w << ",";
 
+  // Host memory allocation
   T *src = (T*)malloc(sizeof(T)*h*w);
   T *dst = (T*)malloc(sizeof(T)*h*w);
   T *dst_gpu = (T*)malloc(sizeof(T)*h*w);
   generate_vector(src, (h - pad_h) * (w - pad_w));
 
-#if 0
-  // Sort factors
-  //for(int x=0; x<hoptions.size(); x++) printf("%d ", hoptions[x]);
-  //printf("\n");
-  size_t hf_sorted[hoptions.size()];
-  size_t wf_sorted[woptions.size()];
-  gsl_sort_int_index((size_t *)hf_sorted, &hoptions[0], 1, hoptions.size());
-  //for(int x=0; x<hoptions.size(); x++) printf("%d ", hoptions[hf_sorted[x]]);
-  //printf("\n");
-  gsl_sort_int_index((size_t *)wf_sorted, &woptions[0], 1, woptions.size());
-  //for(int x=0; x<woptions.size(); x++) printf("%d ", woptions[wf_sorted[x]]);
-  //printf("\n");
-#endif
-
-#define BRUTE 0
+#define BRUTE 0 // Brute-force search (all possible tile sizes)
 #if BRUTE
   // Brute-force search
   cl_ulong max_et = ULONG_MAX;
@@ -536,16 +488,10 @@ TEST_F(libmarshal_cl_test, full) {
     for (int j = 0; j < woptions.size(); j++) {
       int B = w/woptions[wf_sorted[j]], b = woptions[wf_sorted[j]];
 #else
-  // Heuristic for determining tile dimensions
+  // Heuristic for determining tile dimensions (using Algs. 3 and 5 in TPDS paper)
   int A, a, B, b;
-#if 0
-  Heuristic(&A, &a, &B, &b, hf_sorted, wf_sorted, hoptions, woptions, h, w);
-  //std::cerr << "" << A << "," << a << ",";
-  //std::cerr << "" << B << "," << b <<",";
-#else
   A=h/aa; a=aa;
   B=w/bb; b=bb;
-#endif
 #endif
 
   cl_int err;
@@ -567,30 +513,10 @@ TEST_F(libmarshal_cl_test, full) {
   const int WARM_UP = 0;
 
   // Once selected super-element sizes (and tile size) the appropriate sequence of elementary transpositions is choosen (Algorithm 3 - TPDS paper)
-//if(a <= 1536 && b <= 1536){
-#if 0
-    if((a >= 6 && a*B*b <= MAX_MEM) || b < 3 && ((a >= b && ((a*B*b+31)/32) + ((((a*B*b+31)/32)>>5)*1) <= MAX_MEM) || (A > b && ((A*B*b+31)/32) + ((((A*B*b+31)/32)>>5)*1) <= MAX_MEM))){
-      /*if (b < 3 && ((a*B*b+31)/32) + ((((a*B*b+31)/32)>>5)*1) > MAX_MEM){
-        int temp = A;
-        A = a;
-        a = temp;
-      }*/
-      Heuristic33(&A, &a, &B, &b, hf_sorted, wf_sorted, hoptions, woptions, h, w);
-#else
     if(a >= 6 && a*B*b <= MAX_MEM){
-#endif
       std::cerr << "" << A << "," << a << ",";
       std::cerr << "" << B*b << ",";
 
-      // Calculate spreading factor (in case 010-PTTWAC is needed)
-      int S_f = MAX_MEM / (((a*B*b+31)/32) + ((((a*B*b+31)/32)>>5)*P));
-      if (S_f < 2) S_f = 1;
-      else if (S_f >=2 && S_f < 4) S_f = 2;
-      else if (S_f >=4 && S_f < 8) S_f = 4;
-      else if (S_f >=8 && S_f < 16) S_f = 8;
-      else if (S_f >=16 && S_f < 32) S_f = 8; //16;
-      else S_f = 32; // BS will be used
-
       // 2-stage approach
       for (int n = 0; n < N+WARM_UP; n++) {
         if (n == WARM_UP){
@@ -604,7 +530,7 @@ TEST_F(libmarshal_cl_test, full) {
             continue;
         }
         // Transpose
-        r = cl_transpose((*queue_)(), d_dst(), A, a, B, b, S_f, 2, &et); 
+        r = cl_transpose((*queue_)(), d_dst(), A, a, B, b, 1, 2, &et); 
         EXPECT_EQ(false, r);
         if (r != false)
           continue;
@@ -620,40 +546,18 @@ TEST_F(libmarshal_cl_test, full) {
               dst_gpu), CL_SUCCESS);
         // compute golden
         // [h/t][t][w] to [h/t][w][t]
-        //cpu_aos_asta(src, dst, h-pad_h, w-pad_w, a);
         cpu_aos_asta(src, dst, h-pad_h, w-pad_w, 1);
         // [h/t][w][t] to [h/t][t][w]
-        //cpu_soa_asta(dst, src, (w-pad_w)*a, A, a);
         cpu_soa_asta(dst, src, (w-pad_w)*1, h-pad_h, 1);
         EXPECT_EQ(0, compare_output(dst_gpu, src, (h-pad_h)*(w-pad_w)));
 #endif
       }
     }
-#if 0
-    else if((b >= 6 && b*A*a <= MAX_MEM) || a < 3 && (b >= a && (((b*A*a+31)/32) + ((((b*A*a+31)/32)>>5)*1) <= MAX_MEM) || (B > a && ((B*A*a+31)/32) + ((((B*A*a+31)/32)>>5)*1) <= MAX_MEM))){
-      /*if (a < 3 && ((b*A*a+31)/32) + ((((b*A*a+31)/32)>>5)*1) > MAX_MEM){
-        int temp = B;
-        B = b;
-        b = temp;
-      }*/
-      Heuristic33(&B, &b, &A, &a, wf_sorted, hf_sorted, woptions, hoptions, w, h);
-#else
+
     else if(b >= 6 && b*A*a <= MAX_MEM){
-#endif
       std::cerr << "" << A*a << ",";
       std::cerr << "" << B << "," << b << ",";
 
-      // Calculate spreading factor
-      int S_f = MAX_MEM / (((b*A*a+31)/32) + ((((b*A*a+31)/32)>>5)*P));
-      //std::cerr << "S_f = " << S_f << ",";
-      if (S_f < 2) S_f = 1;
-      else if (S_f >=2 && S_f < 4) S_f = 2;
-      else if (S_f >=4 && S_f < 8) S_f = 4;
-      else if (S_f >=8 && S_f < 16) S_f = 8;
-      else if (S_f >=16 && S_f < 32) S_f = 8; //16;
-      else S_f = 32; // BS will be used
-      //std::cerr << "" << S_f << ",\t";
-
       // 2-stage approach
       for (int n = 0; n < N+WARM_UP; n++) {
         if (n == WARM_UP){
@@ -667,7 +571,7 @@ TEST_F(libmarshal_cl_test, full) {
             continue;
         }
         // Transpose
-        r = cl_transpose((*queue_)(), d_dst(), A, a, B, b, S_f, 22, &et);
+        r = cl_transpose((*queue_)(), d_dst(), A, a, B, b, 1, 22, &et);
         EXPECT_EQ(false, r);
         if (r != false)
           continue;
@@ -683,29 +587,17 @@ TEST_F(libmarshal_cl_test, full) {
               dst_gpu), CL_SUCCESS);
         // compute golden
         // [h/t][t][w] to [h/t][w][t]
-        //cpu_aos_asta(src, dst, h-pad_h, w-pad_w, a);
         cpu_aos_asta(src, dst, h-pad_h, w-pad_w, 1);
         // [h/t][w][t] to [h/t][t][w]
-        //cpu_soa_asta(dst, src, (w-pad_w)*a, A, a);
         cpu_soa_asta(dst, src, (w-pad_w)*1, h-pad_h, 1);
         EXPECT_EQ(0, compare_output(dst_gpu, src, (h-pad_h)*(w-pad_w)));
 #endif
       }
     }
+
     else{
       std::cerr << "" << A << "," << a << ",";
       std::cerr << "" << B << "," << b <<",";
-
-      // Calculate spreading factor
-      int S_f = MAX_MEM / (((a*b+31)/32) + ((((a*b+31)/32)>>5)*P));
-      //std::cerr << "S_f = " << S_f << ",";
-      if (S_f < 2) S_f = 1;
-      else if (S_f >=2 && S_f < 4) S_f = 2;
-      else if (S_f >=4 && S_f < 8) S_f = 4;
-      else if (S_f >=8 && S_f < 16) S_f = 8;
-      else if (S_f >=16 && S_f < 32) S_f = 8; //16;
-      else S_f = 32; // BS will be used
-      //std::cerr << "" << S_f << ",\t";
 
       // 3-stage approach
       for (int n = 0; n < N+WARM_UP; n++) {
@@ -721,9 +613,9 @@ TEST_F(libmarshal_cl_test, full) {
         }
         // Transpose
         if (a <= b)
-          r = cl_transpose((*queue_)(), d_dst(), A, a, B, b, S_f, 3, &et);
+          r = cl_transpose((*queue_)(), d_dst(), A, a, B, b, 1, 3, &et);
         else
-          r = cl_transpose((*queue_)(), d_dst(), A, a, B, b, S_f, 32, &et);
+          r = cl_transpose((*queue_)(), d_dst(), A, a, B, b, 1, 32, &et);
         EXPECT_EQ(false, r);
         if (r != false)
           continue;
@@ -739,16 +631,13 @@ TEST_F(libmarshal_cl_test, full) {
               dst_gpu), CL_SUCCESS);
         // compute golden
         // [h/t][t][w] to [h/t][w][t]
-        //cpu_aos_asta(src, dst, h-pad_h, w-pad_w, a);
         cpu_aos_asta(src, dst, h-pad_h, w-pad_w, 1);
         // [h/t][w][t] to [h/t][t][w]
-        //cpu_soa_asta(dst, src, (w-pad_w)*a, A, a);
         cpu_soa_asta(dst, src, (w-pad_w)*1, h-pad_h, 1);
         EXPECT_EQ(0, compare_output(dst_gpu, src, (h-pad_h)*(w-pad_w)));
 #endif
       }
     }
-//}
 
 #if BRUTE
     if(et < max_et) max_et = et;

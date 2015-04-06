@@ -25,8 +25,8 @@
 #pragma OPENCL EXTENSION cl_khr_fp64 : enable
 
 // Double check NVIDIA and SP flags have the same value as in ~/test/cl_unittest.cc and ~/src/cl_marshal.cc
-#define NVIDIA 0
-#define SP 0
+#define NVIDIA 1
+#define SP 1
 
 #if SP
 #define T float
@@ -146,7 +146,6 @@ __kernel void BS_marshal_vw (__global T *input, int tile_size, int width,
   }
 #else
   input += tile_size*width*bid;
-  //store += (tile_size+1)*width*warp_id;
   store += tile_size*width*warp_id;
   for (int j = bid; j < A; j += get_num_groups(0)*warps_group){
     for (int i = tidx; i < tile_size*width; i+=warp_size) {
@@ -585,17 +584,6 @@ void _transpose_100_b(__global T *input,
   int num_groups = get_num_groups(0);
   int group_size = get_local_size(0);
 
-  /*int warp_id, warps_group;
-  // Recalculate IDs if virtual warp is used
-  if (warp_size == 64){
-    tid = get_local_id(0) & 63;
-    warp_id = get_local_id(0) >> 6;
-    warps_group = get_local_size(0) >> 6;
-    bid = group_id * warps_group + warp_id;
-    num_groups = get_num_groups(0) * warps_group;
-    group_size = warp_size;
-  }*/
-
   for(int gid = bid; gid < m; gid += num_groups) {
     int next_in_cycle = (gid * A)-m*(gid/B);
     if (next_in_cycle == gid)
@@ -736,7 +724,6 @@ __kernel void transpose_100(__global T *input,
 #if P_IPT
     _transpose_100(input, A, B, b, finished, data, backup, 0, WARP_SIZE);
 #else
-    //volatile __local int done[WARPS];
     _transpose_100(input, A, B, b, finished, data, backup, done, warp_size);
 #endif
 }
@@ -759,7 +746,6 @@ __kernel void transpose_0100(__global T *input,
 #if P_IPT
   _transpose_100(input, A, B, b, finished, data, backup, 0, WARP_SIZE);
 #else
-  //volatile __local int done[WARPS];
   _transpose_100(input, A, B, b, finished, data, backup, done, warp_size);
 #endif
 }
@@ -842,7 +828,6 @@ __kernel void padding( __global T *matrix,
 
   // Declare on-chip memory
   T reg[REGS];
-  //int pos = matrix_size - 1 - (my_s * REGS * get_local_size(0) + get_local_id(0));
   int pos = matrix_size_align - 1 - (my_s * REGS * get_local_size(0) + get_local_id(0));
   int my_s_row = pos / pad_size;
   int my_x = pos % pad_size;
@@ -851,7 +836,6 @@ __kernel void padding( __global T *matrix,
   #pragma unroll
   for (int j = 0; j < REGS; j++){
     if (pos2 >= 0 && my_x < x_size) reg[j] = matrix[pos2];
-    //if (pos2 >= 0 && my_x < x_size && pos2 < matrix_size) reg[j] = matrix[pos2];
     else reg[j] = 0;
     pos -= get_local_size(0);
     my_s_row = pos / pad_size;
@@ -876,12 +860,10 @@ __kernel void padding( __global T *matrix,
 
   barrier(CLK_GLOBAL_MEM_FENCE);
 
-  //pos = matrix_size - 1 - (my_s * REGS * get_local_size(0) + get_local_id(0));
   pos = matrix_size_align - 1 - (my_s * REGS * get_local_size(0) + get_local_id(0));
   // Store to global memory 
   #pragma unroll
   for (int j = 0; j < REGS; j++){
-    //if (pos >= 0) matrix[pos] = reg[j];
     if (pos >= 0 && pos < matrix_size) matrix[pos] = reg[j];
     pos -= get_local_size(0);
   }

@@ -32,9 +32,9 @@
 #include <stdio.h>
 
 // Double check NVIDIA and SP flags have the same value as in ~/test/cl_unittest.cc
-#define NVIDIA 0 // NVIDIA or other (e.g., AMD)
+#define NVIDIA 1 // NVIDIA or other (e.g., AMD)
 // SP = 1 -> Single precision; SP = 0 -> Double precision
-#define SP 0
+#define SP 1
 
 #if SP
 #define T float
@@ -148,7 +148,6 @@ extern "C" bool cl_transpose_010_bs(cl_command_queue cl_queue,
 
   int sh_sz = a*B;
   cl::Kernel kernel(marshalprog->program,
-      //sh_sz<256 ? "BS_marshal_vw" : (IS_POW2(a) ? "BS_marshal_power2":"BS_marshal"));
 #if SP
       sh_sz<256 ? "BS_marshal_vw" : "BS_marshal");
 #else 
@@ -156,9 +155,7 @@ extern "C" bool cl_transpose_010_bs(cl_command_queue cl_queue,
 #endif
   if (CL_SUCCESS != kernel.setArg(0, buffer))
     return true;
-  cl_int err = kernel.setArg(1,
-      //sh_sz<256 ? a: (IS_POW2(a)? count_zero_bits(a) : a));
-      a);
+  cl_int err = kernel.setArg(1, a);
   if (err != CL_SUCCESS)
     return true;
   err = kernel.setArg(2, B);
@@ -252,7 +249,6 @@ extern "C" bool cl_transpose_010_bs(cl_command_queue cl_queue,
 #if PRINT
     std::cerr << "nr_threads_vwarp = " << warp_size << "\t"; // Print warp_size
 #endif
-    //cl::NDRange global((A/warps+1)*nr_threads), local(nr_threads);
     cl::NDRange global(std::min((A/warps+1)*nr_threads, (8192/warps+1)*nr_threads)), local(nr_threads);
     err = queue.enqueueNDRangeKernel(kernel, cl::NullRange, global, local, NULL,
       prof.GetEvent());
@@ -263,7 +259,6 @@ extern "C" bool cl_transpose_010_bs(cl_command_queue cl_queue,
 #if PRINT
     std::cerr << "nr_threads =  " << nr_threads << "\t"; // Print nr_threads
 #endif
-    //cl::NDRange global(A*nr_threads), local(nr_threads);
     cl::NDRange global(std::min(A*nr_threads, 8192*nr_threads)), local(nr_threads);
     err = queue.enqueueNDRangeKernel(kernel, cl::NullRange, global, local, NULL,
       prof.GetEvent());
@@ -532,8 +527,6 @@ bool _cl_transpose_0100(cl_command_queue cl_queue,
 #endif
     // NDRange - PPoPP'2014 + use of virtual warps
     long int aux = A==1?(B<1024?(long int)1024*WARP_SIZE:(long int)B*WARP_SIZE):(A*B<1024?(long int)1024*WARP_SIZE:(long int)B*WARP_SIZE);
-    //std::cerr << "a = " << a << " B = " << B << " A = " << A << " b = " << b << " min = " << (long int)std::min((long int)a*B*WARP_SIZE, B<1024?(long int)1024*WARP_SIZE:(long int)B*WARP_SIZE) << " aux = " << aux << "\t"; // Print v_warp_size
-    //cl::NDRange global(std::min((long int)a*B*WARP_SIZE, (long int)1024*WARP_SIZE), WARPS, A),
     cl::NDRange global(std::min((long int)a*B*WARP_SIZE, aux), WARPS, A),
       local(WARP_SIZE, WARPS, 1);
     err = queue.enqueueNDRangeKernel(kernel, cl::NullRange, global, local,
@@ -600,9 +593,6 @@ extern "C" bool cl_transpose(cl_command_queue queue, cl_mem src, int A, int a,
         std::cerr << "cl_transpose: step 2 failed\n";
       }
 #ifdef LIBMARSHAL_OCL_PROFILE
-      //std::cerr << "[cl_transpose] method 1; "<< 
-      //std::cerr << "2-stage\t" <<
-      //  float(A*a*B*b*2*sizeof(float))/et << "\n";
       std::cerr << "2.1-";
 #endif
       *elapsed_time += et;
@@ -636,9 +626,6 @@ extern "C" bool cl_transpose(cl_command_queue queue, cl_mem src, int A, int a,
         }
       }
 #ifdef LIBMARSHAL_OCL_PROFILE
-      //std::cerr << "[cl_transpose] method 1; "<< 
-      //std::cerr << "2-stage2\t" <<
-      //  float(A*a*B*b*2*sizeof(float))/et << "\n";
       std::cerr << "2.2-";
 #endif
       *elapsed_time += et;
@@ -682,9 +669,6 @@ extern "C" bool cl_transpose(cl_command_queue queue, cl_mem src, int A, int a,
         return r3;
       }
 #ifdef LIBMARSHAL_OCL_PROFILE
-      //std::cerr << "[cl_transpose] method 2; "<< 
-      //std::cerr<< "3-stage\t" <<
-      //  float(A*a*B*b*2*sizeof(float))/et << "\n";
       std::cerr << "3.1-";
 #endif
       *elapsed_time += et;
@@ -728,9 +712,6 @@ extern "C" bool cl_transpose(cl_command_queue queue, cl_mem src, int A, int a,
         return r3;
       }
 #ifdef LIBMARSHAL_OCL_PROFILE
-      //std::cerr << "[cl_transpose] method 2; "<< 
-      //std::cerr<< "3-stage2\t" <<
-      //  float(A*a*B*b*2*sizeof(float))/et << "\n";
       std::cerr << "3.2-";
 #endif
       *elapsed_time += et;
@@ -788,9 +769,6 @@ extern "C" bool cl_transpose(cl_command_queue queue, cl_mem src, int A, int a,
   // fallback
   bool r = cl_transpose_0100(queue, src, 1, A*a, B*b, 1, &et);
 #ifdef LIBMARSHAL_OCL_PROFILE
-  //std::cerr << "[cl_transpose] fallback; "<< 
-  //std::cerr<<
-  //  float(A*a*B*b*2*sizeof(float))/et << "\n";
   std::cerr << "Fallback-"; 
 #endif
   *elapsed_time += et;
